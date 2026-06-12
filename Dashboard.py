@@ -116,26 +116,80 @@ SPACE_COMPANIES = {
 }
 
 # ============================================================================
+# FONCTIONS DE CHARGEMENT DES DONNÉES (CORRIGÉES)
+# ============================================================================
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_stock_data_cached(symbol, period, interval):
+    """Charge uniquement les données sérialisables (DataFrame et dict)"""
+    try:
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(period=period, interval=interval)
+        info = ticker.info
+        
+        # Convertir l'index en string pour la sérialisation
+        if not hist.empty:
+            if hist.index.tz is None:
+                hist.index = hist.index.tz_localize('UTC').tz_convert(USER_TIMEZONE)
+            else:
+                hist.index = hist.index.tz_convert(USER_TIMEZONE)
+            
+            # Réinitialiser l'index pour avoir une colonne date sérialisable
+            hist = hist.reset_index()
+        
+        # Ne garder que les champs info sérialisables
+        safe_info = {
+            'marketCap': info.get('marketCap', 0),
+            'trailingPE': info.get('trailingPE', 0),
+            'forwardPE': info.get('forwardPE', 0),
+            'profitMargins': info.get('profitMargins', 0),
+            'debtToEquity': info.get('debtToEquity', 0),
+            'operatingCashflow': info.get('operatingCashflow', 0),
+            'returnOnEquity': info.get('returnOnEquity', 0),
+            'dividendYield': info.get('dividendYield', 0),
+            'beta': info.get('beta', 1),
+            'targetMeanPrice': info.get('targetMeanPrice', 0),
+            'recommendationKey': info.get('recommendationKey', ''),
+            'numberOfAnalystOpinions': info.get('numberOfAnalystOpinions', 0),
+            'currentPrice': info.get('currentPrice', 0),
+            'sector': info.get('sector', ''),
+            'longName': info.get('longName', ''),
+        }
+        
+        return hist, safe_info
+    except Exception as e:
+        return pd.DataFrame(), {}
+
+@st.cache_data(ttl=60, show_spinner=False)
+def load_multiple_stocks(symbols, period, interval):
+    """Charge plusieurs actions en parallèle"""
+    results = {}
+    for symbol in symbols:
+        hist, info = load_stock_data_cached(symbol, period, interval)
+        if not hist.empty:
+            results[symbol] = {'hist': hist, 'info': info}
+    return results
+
+# ============================================================================
 # FONCTIONS DE CALCUL DES SCORES
 # ============================================================================
 
-def calculate_financial_score(info, ticker_obj):
+def calculate_financial_score_from_info(info):
     """Score financier basé sur les fondamentaux"""
-    score = 50  # Base
-    max_score = 100
+    score = 50
     
-    # Market Cap (pondéré)
+    # Market Cap
     market_cap = info.get('marketCap', 0)
-    if market_cap > 1e12:  # > $1 trillion
+    if market_cap > 1e12:
         score += 15
-    elif market_cap > 1e11:  # > $100 billion
+    elif market_cap > 1e11:
         score += 10
-    elif market_cap > 1e10:  # > $10 billion
+    elif market_cap > 1e10:
         score += 5
-    elif market_cap > 1e9:  # > $1 billion
+    elif market_cap > 1e9:
         score += 2
     
-    # P/E Ratio (plus bas = meilleur, mais attention aux valeurs négatives)
+    # P/E Ratio
     pe_ratio = info.get('trailingPE', 0)
     if pe_ratio and pe_ratio > 0:
         if pe_ratio < 15:
@@ -145,22 +199,9 @@ def calculate_financial_score(info, ticker_obj):
         elif pe_ratio > 50:
             score -= 5
     else:
-        score -= 5  # Pénalité pour P/E négatif ou nul
-    
-    # Croissance du revenu
-    revenue_growth = SPACE_COMPANIES.get(ticker_obj.ticker, {}).get('revenue_growth', 0)
-    if revenue_growth > 0.5:
-        score += 15
-    elif revenue_growth > 0.2:
-        score += 10
-    elif revenue_growth > 0:
-        score += 5
-    elif revenue_growth < -0.2:
-        score -= 10
-    elif revenue_growth < 0:
         score -= 5
     
-    # Marge bénéficiaire
+    # Profit margins
     profit_margins = info.get('profitMargins', 0)
     if profit_margins:
         if profit_margins > 0.2:
@@ -170,7 +211,7 @@ def calculate_financial_score(info, ticker_obj):
         elif profit_margins < 0:
             score -= 5
     
-    # Dette / Equity
+    # Debt to Equity
     debt_to_equity = info.get('debtToEquity', 0)
     if debt_to_equity:
         if debt_to_equity < 50:
@@ -180,14 +221,7 @@ def calculate_financial_score(info, ticker_obj):
         elif debt_to_equity > 200:
             score -= 10
     
-    # Cash flow
-    operating_cash = info.get('operatingCashflow', 0)
-    if operating_cash and operating_cash > 0:
-        score += 10
-    else:
-        score -= 5
-    
-    # Return on Equity (ROE)
+    # Return on Equity
     roe = info.get('returnOnEquity', 0)
     if roe:
         if roe > 0.15:
@@ -197,148 +231,113 @@ def calculate_financial_score(info, ticker_obj):
         elif roe < 0:
             score -= 5
     
-    return min(max(score, 0), max_score)
+    return min(max(score, 0), 100)
 
-def calculate_technical_score(hist):
+def calculate_technical_score_from_hist(hist_df):
     """Score technique basé sur les indicateurs chartistes"""
-    if hist is None or hist.empty or len(hist) < 50:
+    if hist_df is None or hist_df.empty or len(hist_df) < 50:
         return 50
     
     score = 50
+    close = hist_df['Close']
     
-    # Tendance (Moving Averages)
-    close = hist['Close']
-    ma_20 = close.rolling(window=20).mean()
-    ma_50 = close.rolling(window=50).mean()
-    
-    if len(close) > 20 and not ma_20.isna().iloc[-1]:
+    if len(close) > 20:
+        ma_20 = close.rolling(window=20).mean()
         if close.iloc[-1] > ma_20.iloc[-1]:
             score += 10
         else:
             score -= 5
     
-    if len(close) > 50 and not ma_50.isna().iloc[-1]:
-        if ma_20.iloc[-1] > ma_50.iloc[-1]:
-            score += 10
-        else:
-            score -= 5
+    if len(close) > 50:
+        ma_50 = close.rolling(window=50).mean()
+        ma_20 = close.rolling(window=20).mean()
+        if len(ma_20) > 0 and len(ma_50) > 0:
+            if ma_20.iloc[-1] > ma_50.iloc[-1]:
+                score += 10
+            else:
+                score -= 5
     
-    # RSI (Relative Strength Index)
-    delta = close.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = gain / loss
-    rsi = 100 - (100 / (1 + rs))
-    
-    if not rsi.isna().iloc[-1]:
-        current_rsi = rsi.iloc[-1]
-        if 30 <= current_rsi <= 70:  # Zone neutre
-            score += 5
-        elif current_rsi < 30:  # Survente - potentiel rebond
-            score += 15
-        elif current_rsi > 70:  # Surachat - risque correction
-            score -= 10
+    # RSI
+    if len(close) > 14:
+        delta = close.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        
+        if len(rsi) > 0 and not pd.isna(rsi.iloc[-1]):
+            current_rsi = rsi.iloc[-1]
+            if 30 <= current_rsi <= 70:
+                score += 5
+            elif current_rsi < 30:
+                score += 15
+            elif current_rsi > 70:
+                score -= 10
     
     # Volume
-    volume = hist['Volume']
-    avg_volume = volume.rolling(window=20).mean()
-    if len(volume) > 20:
+    if len(hist_df) > 20:
+        volume = hist_df['Volume']
+        avg_volume = volume.rolling(window=20).mean()
         if volume.iloc[-1] > avg_volume.iloc[-1] * 1.5:
-            score += 10  # Volume élevé = intérêt
+            score += 10
         elif volume.iloc[-1] < avg_volume.iloc[-1] * 0.5:
             score -= 5
     
-    # Volatilité (moins = mieux pour score technique)
-    volatility = close.pct_change().std() * np.sqrt(252)
-    if volatility < 0.3:
-        score += 5
-    elif volatility > 0.6:
-        score -= 5
-    
     # Performance récente
-    perf_5d = ((close.iloc[-1] / close.iloc[-6]) - 1) * 100 if len(close) > 5 else 0
-    perf_20d = ((close.iloc[-1] / close.iloc[-21]) - 1) * 100 if len(close) > 20 else 0
-    
-    if perf_5d > 5:
-        score += 10
-    elif perf_5d > 0:
-        score += 5
-    elif perf_5d < -5:
-        score -= 10
-    
-    if perf_20d > 10:
-        score += 10
-    elif perf_20d > 0:
-        score += 5
-    elif perf_20d < -10:
-        score -= 10
+    if len(close) > 5:
+        perf_5d = ((close.iloc[-1] / close.iloc[-6]) - 1) * 100
+        if perf_5d > 5:
+            score += 10
+        elif perf_5d > 0:
+            score += 5
+        elif perf_5d < -5:
+            score -= 10
     
     return min(max(score, 0), 100)
 
-def calculate_momentum_score(hist):
-    """Score momentum basé sur les indicateurs de tendance"""
-    if hist is None or hist.empty or len(hist) < 30:
+def calculate_momentum_score_from_hist(hist_df):
+    """Score momentum basé sur MACD et Bollinger"""
+    if hist_df is None or hist_df.empty or len(hist_df) < 30:
         return 50
     
     score = 50
-    close = hist['Close']
+    close = hist_df['Close']
     
     # MACD
-    exp1 = close.ewm(span=12, adjust=False).mean()
-    exp2 = close.ewm(span=26, adjust=False).mean()
-    macd = exp1 - exp2
-    signal = macd.ewm(span=9, adjust=False).mean()
-    
-    if not macd.isna().iloc[-1] and not signal.isna().iloc[-1]:
-        if macd.iloc[-1] > signal.iloc[-1]:
-            score += 10
-        else:
-            score -= 5
+    if len(close) > 26:
+        exp1 = close.ewm(span=12, adjust=False).mean()
+        exp2 = close.ewm(span=26, adjust=False).mean()
+        macd = exp1 - exp2
+        signal = macd.ewm(span=9, adjust=False).mean()
+        
+        if len(macd) > 0 and len(signal) > 0:
+            if macd.iloc[-1] > signal.iloc[-1]:
+                score += 10
+            else:
+                score -= 5
     
     # Bollinger Bands
-    sma = close.rolling(window=20).mean()
-    std = close.rolling(window=20).std()
-    upper_bb = sma + (std * 2)
-    lower_bb = sma - (std * 2)
-    
-    if not upper_bb.isna().iloc[-1]:
-        if close.iloc[-1] <= lower_bb.iloc[-1]:
-            score += 10  # Rebond potentiel
-        elif close.iloc[-1] >= upper_bb.iloc[-1]:
-            score -= 5  # Surachat
-    
-    # ADX (Tendance force)
-    high = hist['High']
-    low = hist['Low']
-    
-    plus_dm = high.diff()
-    minus_dm = low.diff()
-    plus_dm[plus_dm < 0] = 0
-    minus_dm[minus_dm > 0] = 0
-    
-    tr = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
-    atr = tr.rolling(window=14).mean()
-    
-    plus_di = 100 * (plus_dm.rolling(window=14).mean() / atr)
-    minus_di = 100 * (minus_dm.abs().rolling(window=14).mean() / atr)
-    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
-    adx = dx.rolling(window=14).mean()
-    
-    if not adx.isna().iloc[-1]:
-        if adx.iloc[-1] > 25:
-            score += 10
-        elif adx.iloc[-1] < 20:
-            score -= 5
+    if len(close) > 20:
+        sma = close.rolling(window=20).mean()
+        std = close.rolling(window=20).std()
+        upper_bb = sma + (std * 2)
+        lower_bb = sma - (std * 2)
+        
+        if len(upper_bb) > 0 and not pd.isna(upper_bb.iloc[-1]):
+            if close.iloc[-1] <= lower_bb.iloc[-1]:
+                score += 10
+            elif close.iloc[-1] >= upper_bb.iloc[-1]:
+                score -= 5
     
     return min(max(score, 0), 100)
 
-def calculate_space_sector_score(info, symbol):
+def calculate_space_sector_score_from_info(info, symbol):
     """Score spécifique au secteur spatial"""
     score = 50
     
     company_data = SPACE_COMPANIES.get(symbol, {})
     
-    # Lien avec SpaceX/Musk (facteur de spéculation)
+    # Lien avec SpaceX/Musk
     if company_data.get('musk_related', False):
         score += 15
     
@@ -349,23 +348,12 @@ def calculate_space_sector_score(info, symbol):
     elif sector == 'Imagerie':
         score += 5
     
-    # Contrats gouvernementaux (simulé)
+    # Contrats gouvernementaux
     has_gov_contracts = info.get('sector', '') in ['Aerospace', 'Defense']
     if has_gov_contracts:
         score += 10
     
-    # Partenariats stratégiques
-    if 'Rocket Lab' in company_data.get('name', ''):
-        score += 5  # Partenariat NASA
-    if 'Lockheed' in company_data.get('name', ''):
-        score += 5
-    
-    # Innovation et brevets (proxy market cap)
-    market_cap = info.get('marketCap', 0)
-    if market_cap > 1e10:
-        score += 5
-    
-    # Cash burn rate pour startups spatiales
+    # Croissance du revenu
     revenue_growth = company_data.get('revenue_growth', 0)
     if revenue_growth > 0.5:
         score += 10
@@ -374,43 +362,30 @@ def calculate_space_sector_score(info, symbol):
     
     return min(max(score, 0), 100)
 
-def calculate_esg_score(info):
-    """Score ESG (Environnemental, Social, Gouvernance)"""
+def calculate_esg_score_from_info(info):
+    """Score ESG"""
     score = 50
     
-    # Environnement
     sector = info.get('sector', '')
-    if sector == 'Clean Energy' or 'Solar' in str(info.get('longName', '')):
+    if sector == 'Clean Energy':
         score += 15
     elif sector in ['Aerospace', 'Industrial']:
         score -= 5
     
-    # Gouvernance
-    has_dividend = info.get('dividendYield', 0) > 0
-    if has_dividend:
+    # Dividende = bonne gouvernance
+    if info.get('dividendYield', 0) > 0:
         score += 5
-    
-    # Social - diversité (proxy: entreprise tech = mieux noté)
-    if 'Technology' in sector:
-        score += 5
-    
-    # Controverses (proxy: bet léger)
-    beta = info.get('beta', 1)
-    if beta < 0.5:
-        score += 5
-    elif beta > 1.5:
-        score -= 5
     
     return min(max(score, 0), 100)
 
-def calculate_volatility_risk_score(hist):
+def calculate_volatility_risk_score_from_hist(hist_df):
     """Score de risque basé sur la volatilité"""
-    if hist is None or hist.empty or len(hist) < 20:
+    if hist_df is None or hist_df.empty or len(hist_df) < 20:
         return 50
     
-    score = 70  # Base élevée = risque faible
+    score = 70
+    close = hist_df['Close']
     
-    close = hist['Close']
     volatility = close.pct_change().std() * np.sqrt(252)
     
     if volatility > 0.8:
@@ -436,16 +411,14 @@ def calculate_volatility_risk_score(hist):
     
     return min(max(score, 0), 100)
 
-def calculate_liquidity_score(hist, info):
+def calculate_liquidity_score_from_hist(hist_df, info):
     """Score de liquidité"""
-    score = 50
-    
-    if hist is None or hist.empty:
+    if hist_df is None or hist_df.empty:
         return 50
     
-    # Volume quotidien moyen
-    avg_volume = hist['Volume'].tail(20).mean()
-    market_cap = info.get('marketCap', 0)
+    score = 50
+    
+    avg_volume = hist_df['Volume'].tail(20).mean()
     
     if avg_volume > 10_000_000:
         score += 20
@@ -458,7 +431,8 @@ def calculate_liquidity_score(hist, info):
     elif avg_volume < 100_000:
         score -= 15
     
-    # Spread (estimé par market cap)
+    # Market cap
+    market_cap = info.get('marketCap', 0)
     if market_cap > 1e10:
         score += 10
     elif market_cap < 1e8:
@@ -466,13 +440,12 @@ def calculate_liquidity_score(hist, info):
     
     return min(max(score, 0), 100)
 
-def calculate_growth_potential_score(info, symbol):
+def calculate_growth_potential_score_from_info(info, symbol):
     """Score de potentiel de croissance"""
     score = 50
     
     company_data = SPACE_COMPANIES.get(symbol, {})
     
-    # Croissance du revenu
     revenue_growth = company_data.get('revenue_growth', 0)
     if revenue_growth > 0.5:
         score += 20
@@ -483,13 +456,13 @@ def calculate_growth_potential_score(info, symbol):
     elif revenue_growth < 0:
         score -= 10
     
-    # Market cap (plus petit = plus de potentiel)
+    # Small cap = plus de potentiel
     market_cap = info.get('marketCap', 0)
-    if market_cap < 500_000_000:  # Small cap
+    if market_cap < 500_000_000:
         score += 15
     elif market_cap < 2_000_000_000:
         score += 10
-    elif market_cap > 100_000_000_000:  # Mega cap
+    elif market_cap > 100_000_000_000:
         score -= 10
     
     # Secteur innovant
@@ -497,19 +470,12 @@ def calculate_growth_potential_score(info, symbol):
     if sector in ['Lanceurs', 'Satellites']:
         score += 10
     
-    # P/E ratio pour growth stocks (accepté plus élevé)
-    pe_ratio = info.get('forwardPE', 0)
-    if pe_ratio and pe_ratio > 0:
-        if pe_ratio > 50:
-            score += 10  # Attentes de croissance élevées
-    
     return min(max(score, 0), 100)
 
-def calculate_analyst_consensus_score(info):
+def calculate_analyst_consensus_score_from_info(info):
     """Score basé sur le consensus des analystes"""
     score = 50
     
-    # Target price
     target_mean = info.get('targetMeanPrice', 0)
     current_price = info.get('currentPrice', 0)
     
@@ -528,13 +494,6 @@ def calculate_analyst_consensus_score(info):
     recommendation = info.get('recommendationKey', '')
     rec_map = {'strong_buy': 20, 'buy': 15, 'hold': 0, 'sell': -10, 'strong_sell': -20}
     score += rec_map.get(recommendation, 0)
-    
-    # Number of analysts
-    num_analysts = info.get('numberOfAnalystOpinions', 0)
-    if num_analysts > 20:
-        score += 5
-    elif num_analysts < 5:
-        score -= 5
     
     return min(max(score, 0), 100)
 
@@ -572,27 +531,6 @@ def get_score_grade(score):
     else:
         return "FAIBLE", "🔻", "score-poor", "Risque élevé, éviter"
 
-# ============================================================================
-# FONCTIONS UTILITAIRES
-# ============================================================================
-
-@st.cache_data(ttl=300)
-def load_stock_data(symbol, period, interval):
-    try:
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(period=period, interval=interval)
-        info = ticker.info
-        
-        if not hist.empty:
-            if hist.index.tz is None:
-                hist.index = hist.index.tz_localize('UTC').tz_convert(USER_TIMEZONE)
-            else:
-                hist.index = hist.index.tz_convert(USER_TIMEZONE)
-        
-        return hist, info, ticker
-    except Exception as e:
-        return None, None, None
-
 def format_currency(value):
     return f"${value:,.2f}" if value else "$0.00"
 
@@ -622,13 +560,8 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # Période d'analyse
     period = st.selectbox("Période technique", ["1mo", "3mo", "6mo", "1y"], index=1)
     interval = "1d"
-    
-    auto_refresh = st.checkbox("Auto-refresh", value=False)
-    if auto_refresh:
-        refresh_rate = st.slider("Fréquence (sec)", 10, 60, 30)
 
 # ============================================================================
 # SECTION 1: CLASSEMENT DES SCORES
@@ -637,31 +570,31 @@ with st.sidebar:
 if menu == "🏆 Classement des scores":
     st.subheader("🏆 Classement général des actions spatiales")
     
-    # Chargement des scores pour toutes les actions
+    # Chargement des données pour toutes les actions
     all_scores = []
     progress_bar = st.progress(0)
     
     for i, symbol in enumerate(st.session_state.watchlist):
-        hist, info, ticker = load_stock_data(symbol, period, interval)
+        hist_df, info = load_stock_data_cached(symbol, period, interval)
         
-        if hist is not None and not hist.empty:
+        if not hist_df.empty:
             # Calcul de tous les scores
             scores = {
-                'financial': calculate_financial_score(info, ticker),
-                'technical': calculate_technical_score(hist),
-                'momentum': calculate_momentum_score(hist),
-                'space_sector': calculate_space_sector_score(info, symbol),
-                'esg': calculate_esg_score(info),
-                'risk': calculate_volatility_risk_score(hist),
-                'liquidity': calculate_liquidity_score(hist, info),
-                'growth': calculate_growth_potential_score(info, symbol),
-                'analyst': calculate_analyst_consensus_score(info)
+                'financial': calculate_financial_score_from_info(info),
+                'technical': calculate_technical_score_from_hist(hist_df),
+                'momentum': calculate_momentum_score_from_hist(hist_df),
+                'space_sector': calculate_space_sector_score_from_info(info, symbol),
+                'esg': calculate_esg_score_from_info(info),
+                'risk': calculate_volatility_risk_score_from_hist(hist_df),
+                'liquidity': calculate_liquidity_score_from_hist(hist_df, info),
+                'growth': calculate_growth_potential_score_from_info(info, symbol),
+                'analyst': calculate_analyst_consensus_score_from_info(info)
             }
             
             composite = calculate_composite_score(scores)
             grade, icon, css_class, recommendation = get_score_grade(composite)
-            current_price = hist['Close'].iloc[-1]
-            perf_5d = ((hist['Close'].iloc[-1] / hist['Close'].iloc[-6]) - 1) * 100 if len(hist) > 5 else 0
+            current_price = hist_df['Close'].iloc[-1]
+            perf_5d = ((hist_df['Close'].iloc[-1] / hist_df['Close'].iloc[-6]) - 1) * 100 if len(hist_df) > 5 else 0
             
             company_data = SPACE_COMPANIES.get(symbol, {})
             
@@ -685,56 +618,53 @@ if menu == "🏆 Classement des scores":
     
     progress_bar.empty()
     
-    # Classement par score
-    df_scores = pd.DataFrame(all_scores)
-    df_scores = df_scores.sort_values('Score', ascending=False)
-    
-    # Affichage du classement
-    st.markdown("### 🔥 Top 10 des meilleurs scores")
-    
-    top10 = df_scores.head(10)
-    
-    for idx, row in top10.iterrows():
-        score_class = "score-excellent" if row['Score'] >= 70 else "score-good" if row['Score'] >= 55 else "score-average"
-        st.markdown(f"""
-        <div class='score-card {score_class}' style='margin-bottom: 10px;'>
-            <table style='width: 100%; color: white;'>
-                <tr>
-                    <td style='width: 10%; font-size: 24px;'>{row['Icone']}</td>
-                    <td style='width: 25%;'><b>{row['Symbole']}</b><br><small>{row['Entreprise']}</small></td>
-                    <td style='width: 15%;'>{row['Prix']}<br><small>{row['Perf 5j']}</small></td>
-                    <td style='width: 15%;'><b>Secteur:</b><br>{row['Secteur']}</td>
-                    <td style='width: 15%; text-align: center;'><b style='font-size: 28px;'>{row['Score']}</b><br>{row['Grade']}</td>
-                    <td style='width: 20%;'><b>Recommandation:</b><br>{row['Recommandation']}</td>
-                </tr>
-            </table>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Tableau complet
-    st.markdown("### 📋 Classement complet")
-    st.dataframe(df_scores, use_container_width=True, height=400)
-    
-    # Distribution des scores
-    st.markdown("### 📊 Distribution des scores")
-    
-    fig_dist = px.histogram(df_scores, x='Score', nbins=20, 
-                            title="Distribution des scores composites",
-                            color_discrete_sequence=['#005288'])
-    fig_dist.add_vline(x=70, line_dash="dash", line_color="green", annotation_text="Excellent")
-    fig_dist.add_vline(x=55, line_dash="dash", line_color="orange", annotation_text="Bon")
-    fig_dist.add_vline(x=40, line_dash="dash", line_color="red", annotation_text="Moyen")
-    fig_dist.update_layout(height=400)
-    st.plotly_chart(fig_dist, use_container_width=True)
-    
-    # Radar chart des scores moyens par secteur
-    st.markdown("### 🎯 Performance par secteur")
-    sector_perf = df_scores.groupby('Secteur')['Score'].mean().reset_index()
-    
-    fig_radar = px.bar(sector_perf, x='Secteur', y='Score', 
-                       title="Score moyen par secteur",
-                       color='Score', color_continuous_scale='Viridis')
-    st.plotly_chart(fig_radar, use_container_width=True)
+    if all_scores:
+        df_scores = pd.DataFrame(all_scores)
+        df_scores = df_scores.sort_values('Score', ascending=False)
+        
+        st.markdown("### 🔥 Top 10 des meilleurs scores")
+        
+        top10 = df_scores.head(10)
+        
+        for idx, row in top10.iterrows():
+            score_class = row['Grade'].lower().replace(' ', '-')
+            if 'EXCELLENT' in row['Grade']:
+                score_class = "score-excellent"
+            elif 'TRÈS BON' in row['Grade']:
+                score_class = "score-good"
+            elif 'BON' in row['Grade']:
+                score_class = "score-average"
+            else:
+                score_class = "score-poor"
+                
+            st.markdown(f"""
+            <div class='score-card {score_class}' style='margin-bottom: 10px;'>
+                <table style='width: 100%; color: white;'>
+                    <tr>
+                        <td style='width: 10%; font-size: 24px;'>{row['Icone']}</td>
+                        <td style='width: 25%;'><b>{row['Symbole']}</b><br><small>{row['Entreprise']}</small></td>
+                        <td style='width: 15%;'>{row['Prix']}<br><small>{row['Perf 5j']}</small></td>
+                        <td style='width: 15%;'><b>Secteur:</b><br>{row['Secteur']}</td>
+                        <td style='width: 15%; text-align: center;'><b style='font-size: 28px;'>{row['Score']}</b><br>{row['Grade']}</td>
+                        <td style='width: 20%;'><b>Recommandation:</b><br>{row['Recommandation']}</td>
+                    </tr>
+                </table>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("### 📋 Classement complet")
+        st.dataframe(df_scores, use_container_width=True, height=400)
+        
+        # Distribution des scores
+        fig_dist = px.histogram(df_scores, x='Score', nbins=20, 
+                                title="Distribution des scores composites",
+                                color_discrete_sequence=['#005288'])
+        fig_dist.add_vline(x=70, line_dash="dash", line_color="green")
+        fig_dist.add_vline(x=55, line_dash="dash", line_color="orange")
+        fig_dist.add_vline(x=40, line_dash="dash", line_color="red")
+        st.plotly_chart(fig_dist, use_container_width=True)
+    else:
+        st.warning("Aucune donnée disponible")
 
 # ============================================================================
 # SECTION 2: SCOREBOARD DÉTAILLÉ
@@ -743,40 +673,38 @@ if menu == "🏆 Classement des scores":
 elif menu == "📊 Scoreboard détaillé":
     st.subheader("📊 Scoreboard détaillé par action")
     
-    # Sélection de l'action
     selected_symbol = st.selectbox("Sélectionner une action", st.session_state.watchlist)
     
     if selected_symbol:
-        hist, info, ticker = load_stock_data(selected_symbol, period, interval)
+        hist_df, info = load_stock_data_cached(selected_symbol, period, interval)
         
-        if hist is not None and not hist.empty:
-            # Calcul de tous les scores
+        if not hist_df.empty:
             scores = {
-                'financial': calculate_financial_score(info, ticker),
-                'technical': calculate_technical_score(hist),
-                'momentum': calculate_momentum_score(hist),
-                'space_sector': calculate_space_sector_score(info, selected_symbol),
-                'esg': calculate_esg_score(info),
-                'risk': calculate_volatility_risk_score(hist),
-                'liquidity': calculate_liquidity_score(hist, info),
-                'growth': calculate_growth_potential_score(info, selected_symbol),
-                'analyst': calculate_analyst_consensus_score(info)
+                'financial': calculate_financial_score_from_info(info),
+                'technical': calculate_technical_score_from_hist(hist_df),
+                'momentum': calculate_momentum_score_from_hist(hist_df),
+                'space_sector': calculate_space_sector_score_from_info(info, selected_symbol),
+                'esg': calculate_esg_score_from_info(info),
+                'risk': calculate_volatility_risk_score_from_hist(hist_df),
+                'liquidity': calculate_liquidity_score_from_hist(hist_df, info),
+                'growth': calculate_growth_potential_score_from_info(info, selected_symbol),
+                'analyst': calculate_analyst_consensus_score_from_info(info)
             }
             
             composite = calculate_composite_score(scores)
             grade, icon, css_class, recommendation = get_score_grade(composite)
             
-            # En-tête avec score global
+            current_price = hist_df['Close'].iloc[-1]
+            
             st.markdown(f"""
             <div class='score-card {css_class}' style='text-align: center; padding: 2rem;'>
                 <h2 style='margin: 0;'>{icon} {selected_symbol} - {SPACE_COMPANIES.get(selected_symbol, {}).get('name', selected_symbol)}</h2>
                 <div style='font-size: 48px; font-weight: bold; margin: 20px 0;'>{composite:.1f}</div>
                 <div style='font-size: 20px;'>{grade} - {recommendation}</div>
-                <div style='margin-top: 10px;'>Prix: {format_currency(hist['Close'].iloc[-1])}</div>
+                <div style='margin-top: 10px;'>Prix: {format_currency(current_price)}</div>
             </div>
             """, unsafe_allow_html=True)
             
-            # Affichage des scores détaillés
             st.markdown("### 📈 Détail des scores par catégorie")
             
             col1, col2, col3 = st.columns(3)
@@ -795,7 +723,6 @@ elif menu == "📊 Scoreboard détaillé":
             
             for i, (name, score, desc) in enumerate(categories):
                 with [col1, col2, col3][i % 3]:
-                    score_class = "score-excellent" if score >= 70 else "score-good" if score >= 55 else "score-average"
                     st.markdown(f"""
                     <div class='metric-card' style='margin: 5px 0;'>
                         <b>{name}</b><br>
@@ -805,8 +732,6 @@ elif menu == "📊 Scoreboard détaillé":
                     """, unsafe_allow_html=True)
             
             # Graphique radar
-            st.markdown("### 🎯 Profil de score (Radar)")
-            
             categories_radar = ['financial', 'technical', 'momentum', 'space_sector', 'esg', 'risk', 'liquidity', 'growth', 'analyst']
             labels_radar = ['Financier', 'Technique', 'Momentum', 'Spatial', 'ESG', 'Risque', 'Liquidité', 'Croissance', 'Analystes']
             values_radar = [scores[cat] for cat in categories_radar]
@@ -827,100 +752,21 @@ elif menu == "📊 Scoreboard détaillé":
             )
             st.plotly_chart(fig_radar, use_container_width=True)
             
-            # Historique des scores (simulé)
-            st.markdown("### 📅 Évolution du score (simulée)")
-            dates = pd.date_range(end=datetime.now(), periods=30, freq='D')
-            historical_composite = [composite - np.random.randint(-10, 15) for _ in range(30)]
-            
-            fig_history = go.Figure()
-            fig_history.add_trace(go.Scatter(
-                x=dates,
-                y=historical_composite,
-                mode='lines+markers',
-                name='Score composite',
-                line=dict(color='#005288', width=2),
-                marker=dict(size=6)
-            ))
-            fig_history.add_hline(y=70, line_dash="dash", line_color="green", annotation_text="Excellent")
-            fig_history.add_hline(y=55, line_dash="dash", line_color="orange", annotation_text="Bon")
-            fig_history.add_hline(y=40, line_dash="dash", line_color="red", annotation_text="Moyen")
-            fig_history.update_layout(title="Tendance du score (30 derniers jours)", height=400)
-            st.plotly_chart(fig_history, use_container_width=True)
-            
-            # Recommandation détaillée
-            st.markdown("### 💡 Recommandation d'investissement")
-            
+            # Recommandation
             if composite >= 70:
                 st.success(f"""
                 **{icon} RECOMMANDATION : ACHAT FORT**
                 
                 {selected_symbol} affiche un score excellent de {composite:.1f}/100.
-                
-                **Points forts:**
-                - Score financier solide ({scores['financial']}/100)
-                - Bon momentum technique ({scores['momentum']}/100)
-                - Positionnement stratégique dans le spatial ({scores['space_sector']}/100)
-                
-                **Risques à surveiller:**
-                - Score de risque: {scores['risk']}/100
-                - Volatilité potentielle du secteur
                 """)
             elif composite >= 55:
-                st.info(f"""
-                **{icon} RECOMMANDATION : ACCUMULATION**
-                
-                {selected_symbol} présente un score bon de {composite:.1f}/100.
-                
-                **Points positifs:**
-                - Potentiel de croissance intéressant ({scores['growth']}/100)
-                - Bonne liquidité ({scores['liquidity']}/100)
-                
-                **Points d'attention:**
-                - Amélioration technique nécessaire ({scores['technical']}/100)
-                - Suivre l'évolution du consensus analystes
-                """)
+                st.info(f"**{icon} RECOMMANDATION : ACCUMULATION** - Score: {composite:.1f}/100")
             elif composite >= 40:
-                st.warning(f"""
-                **{icon} RECOMMANDATION : NEUTRE / SURVEILLER**
-                
-                {selected_symbol} affiche un score moyen de {composite:.1f}/100.
-                
-                **Points faibles:**
-                - Score financier à renforcer ({scores['financial']}/100)
-                - ESG perfectible ({scores['esg']}/100)
-                
-                **Catalyseurs potentiels:**
-                - Nouvelles de l'entreprise
-                - Contrats gouvernementaux
-                """)
+                st.warning(f"**{icon} RECOMMANDATION : NEUTRE** - Score: {composite:.1f}/100")
             else:
-                st.error(f"""
-                **{icon} RECOMMANDATION : ÉVITER / VENDRE**
-                
-                {selected_symbol} présente un score faible de {composite:.1f}/100.
-                
-                **Risques majeurs:**
-                - Score technique faible ({scores['technical']}/100)
-                - Croissance incertaine ({scores['growth']}/100)
-                - Forte volatilité ({scores['risk']}/100)
-                
-                **Alternatives à considérer:**
-                - RKLB, ASTS, ou PL pour le secteur spatial
-                """)
-            
-            # Métriques clés
-            with st.expander("📊 Métriques financières détaillées"):
-                col_m1, col_m2 = st.columns(2)
-                with col_m1:
-                    st.write(f"**Market Cap:** {format_currency(info.get('marketCap', 0))}")
-                    st.write(f"**P/E Ratio:** {info.get('trailingPE', 'N/A')}")
-                    st.write(f"**Forward P/E:** {info.get('forwardPE', 'N/A')}")
-                    st.write(f"**PEG Ratio:** {info.get('pegRatio', 'N/A')}")
-                with col_m2:
-                    st.write(f"**Beta:** {info.get('beta', 'N/A')}")
-                    st.write(f"**Dividende:** {info.get('dividendYield', 0)*100:.2f}%")
-                    st.write(f"**Target Price:** {format_currency(info.get('targetMeanPrice', 0))}")
-                    st.write(f"**Recommandation:** {info.get('recommendationKey', 'N/A').upper()}")
+                st.error(f"**{icon} RECOMMANDATION : ÉVITER** - Score: {composite:.1f}/100")
+        else:
+            st.warning(f"Aucune donnée disponible pour {selected_symbol}")
 
 # ============================================================================
 # SECTION 3: PORTEFEUILLE & SCORES
@@ -947,6 +793,7 @@ elif menu == "💼 Portefeuille & Scores":
                     'date': datetime.now().strftime('%Y-%m-%d')
                 })
                 st.success(f"✅ Ajouté")
+                st.rerun()
     
     with col1:
         if st.session_state.portfolio:
@@ -955,22 +802,21 @@ elif menu == "💼 Portefeuille & Scores":
             weighted_score = 0
             
             for sym, positions in st.session_state.portfolio.items():
-                hist, info, ticker = load_stock_data(sym, period, interval)
+                hist_df, info = load_stock_data_cached(sym, period, interval)
                 
-                if hist is not None and not hist.empty:
-                    current_price = hist['Close'].iloc[-1]
+                if not hist_df.empty:
+                    current_price = hist_df['Close'].iloc[-1]
                     
-                    # Calcul du score
                     scores = {
-                        'financial': calculate_financial_score(info, ticker),
-                        'technical': calculate_technical_score(hist),
-                        'momentum': calculate_momentum_score(hist),
-                        'space_sector': calculate_space_sector_score(info, sym),
-                        'esg': calculate_esg_score(info),
-                        'risk': calculate_volatility_risk_score(hist),
-                        'liquidity': calculate_liquidity_score(hist, info),
-                        'growth': calculate_growth_potential_score(info, sym),
-                        'analyst': calculate_analyst_consensus_score(info)
+                        'financial': calculate_financial_score_from_info(info),
+                        'technical': calculate_technical_score_from_hist(hist_df),
+                        'momentum': calculate_momentum_score_from_hist(hist_df),
+                        'space_sector': calculate_space_sector_score_from_info(info, sym),
+                        'esg': calculate_esg_score_from_info(info),
+                        'risk': calculate_volatility_risk_score_from_hist(hist_df),
+                        'liquidity': calculate_liquidity_score_from_hist(hist_df, info),
+                        'growth': calculate_growth_potential_score_from_info(info, sym),
+                        'analyst': calculate_analyst_consensus_score_from_info(info)
                     }
                     composite = calculate_composite_score(scores)
                     
@@ -997,23 +843,18 @@ elif menu == "💼 Portefeuille & Scores":
             if total_value > 0:
                 portfolio_score = weighted_score / total_value
                 
-                # Métriques du portefeuille
+                score_class = "score-excellent" if portfolio_score >= 70 else "score-good" if portfolio_score >= 55 else "score-average"
                 st.markdown(f"""
-                <div class='score-card {"score-excellent" if portfolio_score >= 70 else "score-good" if portfolio_score >= 55 else "score-average"}'>
+                <div class='score-card {score_class}'>
                     <h3>📊 Score global du portefeuille</h3>
                     <div style='font-size: 48px;'>{portfolio_score:.1f}/100</div>
-                    <div>{get_score_grade(portfolio_score)[0]} - {get_score_grade(portfolio_score)[3]}</div>
+                    <div>{get_score_grade(portfolio_score)[0]}</div>
                     <div>Valeur totale: {format_currency(total_value)}</div>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Tableau des positions avec scores
                 df_portfolio = pd.DataFrame(portfolio_scores)
                 st.dataframe(df_portfolio, use_container_width=True)
-                
-                # Distribution des scores
-                fig_dist = px.histogram(df_portfolio, x='Score', title="Distribution des scores dans le portefeuille")
-                st.plotly_chart(fig_dist)
                 
                 if st.button("🗑️ Vider le portefeuille"):
                     st.session_state.portfolio = {}
@@ -1028,25 +869,25 @@ elif menu == "💼 Portefeuille & Scores":
 elif menu == "📈 Analyse comparative":
     st.subheader("📈 Comparaison des scores entre actions")
     
-    compare_symbols = st.multiselect("Sélectionner actions à comparer", st.session_state.watchlist, default=['RKLB', 'ASTS', 'PL', 'SPCE'])
+    compare_symbols = st.multiselect("Sélectionner actions à comparer", st.session_state.watchlist, default=['RKLB', 'ASTS', 'PL'])
     
     if len(compare_symbols) >= 2:
         comparison_data = []
         
         for sym in compare_symbols:
-            hist, info, ticker = load_stock_data(sym, period, interval)
+            hist_df, info = load_stock_data_cached(sym, period, interval)
             
-            if hist is not None and not hist.empty:
+            if not hist_df.empty:
                 scores = {
-                    'financial': calculate_financial_score(info, ticker),
-                    'technical': calculate_technical_score(hist),
-                    'momentum': calculate_momentum_score(hist),
-                    'space_sector': calculate_space_sector_score(info, sym),
-                    'esg': calculate_esg_score(info),
-                    'risk': calculate_volatility_risk_score(hist),
-                    'liquidity': calculate_liquidity_score(hist, info),
-                    'growth': calculate_growth_potential_score(info, sym),
-                    'analyst': calculate_analyst_consensus_score(info)
+                    'financial': calculate_financial_score_from_info(info),
+                    'technical': calculate_technical_score_from_hist(hist_df),
+                    'momentum': calculate_momentum_score_from_hist(hist_df),
+                    'space_sector': calculate_space_sector_score_from_info(info, sym),
+                    'esg': calculate_esg_score_from_info(info),
+                    'risk': calculate_volatility_risk_score_from_hist(hist_df),
+                    'liquidity': calculate_liquidity_score_from_hist(hist_df, info),
+                    'growth': calculate_growth_potential_score_from_info(info, sym),
+                    'analyst': calculate_analyst_consensus_score_from_info(info)
                 }
                 
                 comparison_data.append({
@@ -1058,7 +899,6 @@ elif menu == "📈 Analyse comparative":
         if comparison_data:
             df_compare = pd.DataFrame(comparison_data)
             
-            # Graphique comparatif
             fig_compare = go.Figure()
             
             for sym in compare_symbols:
@@ -1082,7 +922,6 @@ elif menu == "📈 Analyse comparative":
             )
             st.plotly_chart(fig_compare, use_container_width=True)
             
-            # Tableau comparatif
             st.dataframe(df_compare.sort_values('Composite', ascending=False), use_container_width=True)
 
 # ============================================================================
@@ -1092,49 +931,37 @@ elif menu == "📈 Analyse comparative":
 elif menu == "🎯 Alertes scoring":
     st.subheader("🎯 Alertes basées sur les scores")
     
-    st.markdown("""
-    ### Configuration des alertes de scoring
-    
-    Recevez une notification quand une action atteint un certain score.
-    """)
-    
     target_score = st.slider("Seuil d'alerte", 0, 100, 70)
     
     if st.button("🔍 Scanner les actions maintenant"):
-        st.info("Scan en cours...")
-        
-        alerts_found = []
-        
-        for sym in st.session_state.watchlist[:10]:  # Limité pour performance
-            hist, info, ticker = load_stock_data(sym, "1mo", "1d")
+        with st.spinner("Scan en cours..."):
+            alerts_found = []
             
-            if hist is not None and not hist.empty:
-                scores = {
-                    'financial': calculate_financial_score(info, ticker),
-                    'technical': calculate_technical_score(hist),
-                    'momentum': calculate_momentum_score(hist),
-                    'space_sector': calculate_space_sector_score(info, sym),
-                    'esg': calculate_esg_score(info),
-                    'risk': calculate_volatility_risk_score(hist),
-                    'liquidity': calculate_liquidity_score(hist, info),
-                    'growth': calculate_growth_potential_score(info, sym),
-                    'analyst': calculate_analyst_consensus_score(info)
-                }
-                composite = calculate_composite_score(scores)
+            for sym in st.session_state.watchlist[:15]:
+                hist_df, info = load_stock_data_cached(sym, "1mo", "1d")
                 
-                if composite >= target_score:
-                    alerts_found.append({
-                        'Symbole': sym,
-                        'Score': round(composite, 1),
-                        'Grade': get_score_grade(composite)[0]
-                    })
-        
-        if alerts_found:
-            st.success(f"🎯 {len(alerts_found)} actions ont dépassé le seuil de {target_score}")
-            df_alerts = pd.DataFrame(alerts_found)
-            st.dataframe(df_alerts)
-        else:
-            st.warning(f"Aucune action n'a atteint le score de {target_score}")
+                if not hist_df.empty:
+                    scores = {
+                        'financial': calculate_financial_score_from_info(info),
+                        'technical': calculate_technical_score_from_hist(hist_df),
+                        'momentum': calculate_momentum_score_from_hist(hist_df),
+                        'space_sector': calculate_space_sector_score_from_info(info, sym),
+                        'esg': calculate_esg_score_from_info(info),
+                        'risk': calculate_volatility_risk_score_from_hist(hist_df),
+                        'liquidity': calculate_liquidity_score_from_hist(hist_df, info),
+                        'growth': calculate_growth_potential_score_from_info(info, sym),
+                        'analyst': calculate_analyst_consensus_score_from_info(info)
+                    }
+                    composite = calculate_composite_score(scores)
+                    
+                    if composite >= target_score:
+                        alerts_found.append({'Symbole': sym, 'Score': round(composite, 1)})
+            
+            if alerts_found:
+                st.success(f"🎯 {len(alerts_found)} actions ont dépassé le seuil de {target_score}")
+                st.dataframe(pd.DataFrame(alerts_found))
+            else:
+                st.warning(f"Aucune action n'a atteint le score de {target_score}")
 
 # ============================================================================
 # SECTION 6: EXPORT SCORES
@@ -1143,25 +970,24 @@ elif menu == "🎯 Alertes scoring":
 elif menu == "📤 Export scores":
     st.subheader("📤 Export des scores")
     
-    # Génération du rapport complet
     if st.button("📊 Générer rapport complet des scores"):
         all_scores_export = []
         
         with st.spinner("Génération du rapport..."):
             for sym in st.session_state.watchlist:
-                hist, info, ticker = load_stock_data(sym, "1mo", "1d")
+                hist_df, info = load_stock_data_cached(sym, "1mo", "1d")
                 
-                if hist is not None and not hist.empty:
+                if not hist_df.empty:
                     scores = {
-                        'financial': calculate_financial_score(info, ticker),
-                        'technical': calculate_technical_score(hist),
-                        'momentum': calculate_momentum_score(hist),
-                        'space_sector': calculate_space_sector_score(info, sym),
-                        'esg': calculate_esg_score(info),
-                        'risk': calculate_volatility_risk_score(hist),
-                        'liquidity': calculate_liquidity_score(hist, info),
-                        'growth': calculate_growth_potential_score(info, sym),
-                        'analyst': calculate_analyst_consensus_score(info)
+                        'financial': calculate_financial_score_from_info(info),
+                        'technical': calculate_technical_score_from_hist(hist_df),
+                        'momentum': calculate_momentum_score_from_hist(hist_df),
+                        'space_sector': calculate_space_sector_score_from_info(info, sym),
+                        'esg': calculate_esg_score_from_info(info),
+                        'risk': calculate_volatility_risk_score_from_hist(hist_df),
+                        'liquidity': calculate_liquidity_score_from_hist(hist_df, info),
+                        'growth': calculate_growth_potential_score_from_info(info, sym),
+                        'analyst': calculate_analyst_consensus_score_from_info(info)
                     }
                     
                     all_scores_export.append({
@@ -1183,30 +1009,15 @@ elif menu == "📤 Export scores":
         
         if all_scores_export:
             df_export = pd.DataFrame(all_scores_export)
-            
-            # CSV
             csv = df_export.to_csv(index=False)
-            st.download_button("📥 Télécharger CSV", csv, f"scores_spatiaux_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
-            
-            # JSON
-            json_data = df_export.to_dict(orient='records')
-            st.download_button("📥 Télécharger JSON", json.dumps(json_data, indent=2), f"scores_spatiaux_{datetime.now().strftime('%Y%m%d')}.json", "application/json")
-            
-            # Aperçu
-            st.markdown("### Aperçu du rapport")
+            st.download_button("📥 Télécharger CSV", csv, f"scores_spatiaux.csv", "text/csv")
             st.dataframe(df_export, use_container_width=True)
 
 # Footer
 st.markdown("---")
 st.markdown(
     "<p style='text-align: center; color: gray; font-size: 0.8rem;'>"
-    "🚀 SpaceX & NewSpace Tracker - Scores Boursiers Avancés | "
-    "Scores basés sur fondamentaux, technique, momentum, secteur spatial, ESG, risque, liquidité, croissance et analystes"
+    "🚀 SpaceX & NewSpace Tracker - Scores Boursiers Avancés"
     "</p>",
     unsafe_allow_html=True
 )
-
-# Auto-refresh
-if auto_refresh and menu != "🏆 Classement des scores":
-    time.sleep(refresh_rate)
-    st.rerun()
