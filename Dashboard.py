@@ -14,7 +14,6 @@ import os
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures, StandardScaler
 from sklearn.pipeline import make_pipeline
-from sklearn.metrics import mean_squared_error
 import pytz
 import warnings
 warnings.filterwarnings('ignore')
@@ -32,38 +31,79 @@ USER_TIMEZONE = pytz.timezone('Europe/Paris')
 US_TIMEZONE = pytz.timezone('America/New_York')
 UTC_TIMEZONE = pytz.UTC
 
-# Style CSS personnalisé
+# Style CSS personnalisé - CORRIGÉ (texte sombre sur fond clair)
 st.markdown("""
 <style>
+    /* Style général */
+    .stApp {
+        background-color: #f5f5f5;
+    }
+    
     .main-header {
         font-size: 2.5rem;
-        color: #005288;
+        color: #1a1a2e;
         text-align: center;
         margin-bottom: 2rem;
         font-family: 'Montserrat', sans-serif;
-        background: linear-gradient(135deg, #000000 0%, #005288 50%, #FFFFFF 100%);
+        background: linear-gradient(135deg, #1a1a2e 0%, #005288 50%, #1a1a2e 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
+        padding: 20px;
     }
+    
+    /* Cartes de score avec texte sombre */
     .score-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #e8f4f8 0%, #d1e7f0 100%);
         padding: 1rem;
         border-radius: 1rem;
         text-align: center;
-        color: white;
+        color: #1a1a2e;
         margin: 0.5rem 0;
+        border: 1px solid #005288;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
-    .score-excellent { background: linear-gradient(135deg, #00b09b, #96c93d); }
-    .score-good { background: linear-gradient(135deg, #2193b0, #6dd5ed); }
-    .score-average { background: linear-gradient(135deg, #f2994a, #f2c94c); }
-    .score-poor { background: linear-gradient(135deg, #eb3349, #f45c43); }
+    
+    .score-card * {
+        color: #1a1a2e !important;
+    }
+    
+    .score-excellent { 
+        background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+        border-left: 5px solid #28a745;
+    }
+    .score-good { 
+        background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
+        border-left: 5px solid #17a2b8;
+    }
+    .score-average { 
+        background: linear-gradient(135deg, #fff3cd 0%, #ffeeba 100%);
+        border-left: 5px solid #ffc107;
+    }
+    .score-poor { 
+        background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+        border-left: 5px solid #dc3545;
+    }
+    
+    /* Cartes métriques */
     .metric-card {
-        background-color: #f0f2f6;
+        background-color: #ffffff;
         padding: 1rem;
         border-radius: 0.5rem;
         text-align: center;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        border: 1px solid #dee2e6;
+        margin: 5px 0;
     }
+    
+    .metric-card b {
+        color: #005288;
+    }
+    
+    .metric-card span {
+        color: #1a1a2e;
+    }
+    
+    /* Badges */
     .spacex-badge {
         background-color: #005288;
         color: white;
@@ -72,8 +112,95 @@ st.markdown("""
         font-weight: bold;
         display: inline-block;
     }
+    
+    /* Timezone badge */
+    .timezone-badge {
+        background-color: #e3f2fd;
+        border-left: 4px solid #005288;
+        padding: 0.5rem 1rem;
+        margin: 1rem 0;
+        font-size: 0.9rem;
+        color: #1a1a2e;
+        border-radius: 0.5rem;
+    }
+    
+    /* Alertes */
+    .stAlert {
+        background-color: #f8f9fa;
+        color: #1a1a2e;
+    }
+    
+    /* Dataframe */
+    .stDataFrame {
+        background-color: white;
+    }
+    
+    /* Boutons */
     .stButton>button {
         width: 100%;
+        background-color: #005288;
+        color: white;
+        border: none;
+        border-radius: 0.5rem;
+        padding: 0.5rem;
+        font-weight: bold;
+    }
+    
+    .stButton>button:hover {
+        background-color: #003d66;
+        color: white;
+    }
+    
+    /* Sidebar */
+    .css-1d391kg, .css-12oz5g7 {
+        background-color: #1a1a2e;
+    }
+    
+    /* Texte dans les expanders */
+    .streamlit-expanderHeader {
+        color: #005288 !important;
+        font-weight: bold;
+    }
+    
+    /* Métriques Streamlit */
+    .stMetric {
+        background-color: white;
+        padding: 10px;
+        border-radius: 0.5rem;
+        border: 1px solid #dee2e6;
+    }
+    
+    .stMetric label {
+        color: #005288 !important;
+    }
+    
+    .stMetric div {
+        color: #1a1a2e !important;
+    }
+    
+    /* Messages info/success/warning/error */
+    .stInfo, .stSuccess, .stWarning, .stError {
+        background-color: #f8f9fa;
+        border-radius: 0.5rem;
+    }
+    
+    /* Tableaux personnalisés dans les cartes */
+    .score-card table, .score-card td, .score-card th {
+        color: #1a1a2e !important;
+        background: transparent !important;
+    }
+    
+    /* Selectbox et inputs */
+    .stSelectbox label, .stSlider label, .stCheckbox label {
+        color: #1a1a2e !important;
+    }
+    
+    /* Footer */
+    .footer-text {
+        text-align: center;
+        color: #6c757d;
+        font-size: 0.8rem;
+        padding: 20px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -91,9 +218,6 @@ if 'watchlist' not in st.session_state:
         'GSAT', 'IRDM', 'MAXR', 'TSLA', 'LMT', 'NOC', 'BA', 'RTX', 'GD', 'LHX',
         'HON', 'GE', 'TDY', 'HEI', 'SATS'
     ]
-
-if 'historical_scores' not in st.session_state:
-    st.session_state.historical_scores = {}
 
 # Base de données des entreprises spatiales
 SPACE_COMPANIES = {
@@ -116,7 +240,7 @@ SPACE_COMPANIES = {
 }
 
 # ============================================================================
-# FONCTIONS DE CHARGEMENT DES DONNÉES (CORRIGÉES)
+# FONCTIONS DE CHARGEMENT DES DONNÉES
 # ============================================================================
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -127,17 +251,13 @@ def load_stock_data_cached(symbol, period, interval):
         hist = ticker.history(period=period, interval=interval)
         info = ticker.info
         
-        # Convertir l'index en string pour la sérialisation
         if not hist.empty:
             if hist.index.tz is None:
                 hist.index = hist.index.tz_localize('UTC').tz_convert(USER_TIMEZONE)
             else:
                 hist.index = hist.index.tz_convert(USER_TIMEZONE)
-            
-            # Réinitialiser l'index pour avoir une colonne date sérialisable
             hist = hist.reset_index()
         
-        # Ne garder que les champs info sérialisables
         safe_info = {
             'marketCap': info.get('marketCap', 0),
             'trailingPE': info.get('trailingPE', 0),
@@ -160,25 +280,12 @@ def load_stock_data_cached(symbol, period, interval):
     except Exception as e:
         return pd.DataFrame(), {}
 
-@st.cache_data(ttl=60, show_spinner=False)
-def load_multiple_stocks(symbols, period, interval):
-    """Charge plusieurs actions en parallèle"""
-    results = {}
-    for symbol in symbols:
-        hist, info = load_stock_data_cached(symbol, period, interval)
-        if not hist.empty:
-            results[symbol] = {'hist': hist, 'info': info}
-    return results
-
 # ============================================================================
 # FONCTIONS DE CALCUL DES SCORES
 # ============================================================================
 
 def calculate_financial_score_from_info(info):
-    """Score financier basé sur les fondamentaux"""
     score = 50
-    
-    # Market Cap
     market_cap = info.get('marketCap', 0)
     if market_cap > 1e12:
         score += 15
@@ -189,7 +296,6 @@ def calculate_financial_score_from_info(info):
     elif market_cap > 1e9:
         score += 2
     
-    # P/E Ratio
     pe_ratio = info.get('trailingPE', 0)
     if pe_ratio and pe_ratio > 0:
         if pe_ratio < 15:
@@ -201,7 +307,6 @@ def calculate_financial_score_from_info(info):
     else:
         score -= 5
     
-    # Profit margins
     profit_margins = info.get('profitMargins', 0)
     if profit_margins:
         if profit_margins > 0.2:
@@ -211,7 +316,6 @@ def calculate_financial_score_from_info(info):
         elif profit_margins < 0:
             score -= 5
     
-    # Debt to Equity
     debt_to_equity = info.get('debtToEquity', 0)
     if debt_to_equity:
         if debt_to_equity < 50:
@@ -221,20 +325,9 @@ def calculate_financial_score_from_info(info):
         elif debt_to_equity > 200:
             score -= 10
     
-    # Return on Equity
-    roe = info.get('returnOnEquity', 0)
-    if roe:
-        if roe > 0.15:
-            score += 10
-        elif roe > 0.05:
-            score += 5
-        elif roe < 0:
-            score -= 5
-    
     return min(max(score, 0), 100)
 
 def calculate_technical_score_from_hist(hist_df):
-    """Score technique basé sur les indicateurs chartistes"""
     if hist_df is None or hist_df.empty or len(hist_df) < 50:
         return 50
     
@@ -257,7 +350,6 @@ def calculate_technical_score_from_hist(hist_df):
             else:
                 score -= 5
     
-    # RSI
     if len(close) > 14:
         delta = close.diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
@@ -274,36 +366,15 @@ def calculate_technical_score_from_hist(hist_df):
             elif current_rsi > 70:
                 score -= 10
     
-    # Volume
-    if len(hist_df) > 20:
-        volume = hist_df['Volume']
-        avg_volume = volume.rolling(window=20).mean()
-        if volume.iloc[-1] > avg_volume.iloc[-1] * 1.5:
-            score += 10
-        elif volume.iloc[-1] < avg_volume.iloc[-1] * 0.5:
-            score -= 5
-    
-    # Performance récente
-    if len(close) > 5:
-        perf_5d = ((close.iloc[-1] / close.iloc[-6]) - 1) * 100
-        if perf_5d > 5:
-            score += 10
-        elif perf_5d > 0:
-            score += 5
-        elif perf_5d < -5:
-            score -= 10
-    
     return min(max(score, 0), 100)
 
 def calculate_momentum_score_from_hist(hist_df):
-    """Score momentum basé sur MACD et Bollinger"""
     if hist_df is None or hist_df.empty or len(hist_df) < 30:
         return 50
     
     score = 50
     close = hist_df['Close']
     
-    # MACD
     if len(close) > 26:
         exp1 = close.ewm(span=12, adjust=False).mean()
         exp2 = close.ewm(span=26, adjust=False).mean()
@@ -316,44 +387,25 @@ def calculate_momentum_score_from_hist(hist_df):
             else:
                 score -= 5
     
-    # Bollinger Bands
-    if len(close) > 20:
-        sma = close.rolling(window=20).mean()
-        std = close.rolling(window=20).std()
-        upper_bb = sma + (std * 2)
-        lower_bb = sma - (std * 2)
-        
-        if len(upper_bb) > 0 and not pd.isna(upper_bb.iloc[-1]):
-            if close.iloc[-1] <= lower_bb.iloc[-1]:
-                score += 10
-            elif close.iloc[-1] >= upper_bb.iloc[-1]:
-                score -= 5
-    
     return min(max(score, 0), 100)
 
 def calculate_space_sector_score_from_info(info, symbol):
-    """Score spécifique au secteur spatial"""
     score = 50
-    
     company_data = SPACE_COMPANIES.get(symbol, {})
     
-    # Lien avec SpaceX/Musk
     if company_data.get('musk_related', False):
         score += 15
     
-    # Secteur porteur
     sector = company_data.get('sector', '')
     if sector in ['Lanceurs', 'Satellites']:
         score += 10
     elif sector == 'Imagerie':
         score += 5
     
-    # Contrats gouvernementaux
     has_gov_contracts = info.get('sector', '') in ['Aerospace', 'Defense']
     if has_gov_contracts:
         score += 10
     
-    # Croissance du revenu
     revenue_growth = company_data.get('revenue_growth', 0)
     if revenue_growth > 0.5:
         score += 10
@@ -363,23 +415,19 @@ def calculate_space_sector_score_from_info(info, symbol):
     return min(max(score, 0), 100)
 
 def calculate_esg_score_from_info(info):
-    """Score ESG"""
     score = 50
-    
     sector = info.get('sector', '')
     if sector == 'Clean Energy':
         score += 15
     elif sector in ['Aerospace', 'Industrial']:
         score -= 5
     
-    # Dividende = bonne gouvernance
     if info.get('dividendYield', 0) > 0:
         score += 5
     
     return min(max(score, 0), 100)
 
 def calculate_volatility_risk_score_from_hist(hist_df):
-    """Score de risque basé sur la volatilité"""
     if hist_df is None or hist_df.empty or len(hist_df) < 20:
         return 50
     
@@ -397,27 +445,13 @@ def calculate_volatility_risk_score_from_hist(hist_df):
     elif volatility < 0.2:
         score += 10
     
-    # Maximum drawdown
-    rolling_max = close.expanding().max()
-    drawdown = (close - rolling_max) / rolling_max
-    max_drawdown = drawdown.min()
-    
-    if max_drawdown < -0.5:
-        score -= 20
-    elif max_drawdown < -0.3:
-        score -= 10
-    elif max_drawdown > -0.1:
-        score += 10
-    
     return min(max(score, 0), 100)
 
 def calculate_liquidity_score_from_hist(hist_df, info):
-    """Score de liquidité"""
     if hist_df is None or hist_df.empty:
         return 50
     
     score = 50
-    
     avg_volume = hist_df['Volume'].tail(20).mean()
     
     if avg_volume > 10_000_000:
@@ -431,19 +465,10 @@ def calculate_liquidity_score_from_hist(hist_df, info):
     elif avg_volume < 100_000:
         score -= 15
     
-    # Market cap
-    market_cap = info.get('marketCap', 0)
-    if market_cap > 1e10:
-        score += 10
-    elif market_cap < 1e8:
-        score -= 10
-    
     return min(max(score, 0), 100)
 
 def calculate_growth_potential_score_from_info(info, symbol):
-    """Score de potentiel de croissance"""
     score = 50
-    
     company_data = SPACE_COMPANIES.get(symbol, {})
     
     revenue_growth = company_data.get('revenue_growth', 0)
@@ -456,7 +481,6 @@ def calculate_growth_potential_score_from_info(info, symbol):
     elif revenue_growth < 0:
         score -= 10
     
-    # Small cap = plus de potentiel
     market_cap = info.get('marketCap', 0)
     if market_cap < 500_000_000:
         score += 15
@@ -465,15 +489,9 @@ def calculate_growth_potential_score_from_info(info, symbol):
     elif market_cap > 100_000_000_000:
         score -= 10
     
-    # Secteur innovant
-    sector = company_data.get('sector', '')
-    if sector in ['Lanceurs', 'Satellites']:
-        score += 10
-    
     return min(max(score, 0), 100)
 
 def calculate_analyst_consensus_score_from_info(info):
-    """Score basé sur le consensus des analystes"""
     score = 50
     
     target_mean = info.get('targetMeanPrice', 0)
@@ -490,7 +508,6 @@ def calculate_analyst_consensus_score_from_info(info):
         elif upside < -10:
             score -= 10
     
-    # Recommendation
     recommendation = info.get('recommendationKey', '')
     rec_map = {'strong_buy': 20, 'buy': 15, 'hold': 0, 'sell': -10, 'strong_sell': -20}
     score += rec_map.get(recommendation, 0)
@@ -498,18 +515,11 @@ def calculate_analyst_consensus_score_from_info(info):
     return min(max(score, 0), 100)
 
 def calculate_composite_score(scores, weights=None):
-    """Calcule le score composite avec pondérations"""
     if weights is None:
         weights = {
-            'financial': 0.20,
-            'technical': 0.15,
-            'momentum': 0.10,
-            'space_sector': 0.15,
-            'esg': 0.05,
-            'risk': 0.10,
-            'liquidity': 0.05,
-            'growth': 0.15,
-            'analyst': 0.05
+            'financial': 0.20, 'technical': 0.15, 'momentum': 0.10,
+            'space_sector': 0.15, 'esg': 0.05, 'risk': 0.10,
+            'liquidity': 0.05, 'growth': 0.15, 'analyst': 0.05
         }
     
     composite = 0
@@ -519,7 +529,6 @@ def calculate_composite_score(scores, weights=None):
     return composite
 
 def get_score_grade(score):
-    """Convertit un score en grade et description"""
     if score >= 85:
         return "EXCELLENT", "🌟", "score-excellent", "Forte opportunité d'achat"
     elif score >= 70:
@@ -543,10 +552,21 @@ def format_percentage(value):
 
 st.markdown("<h1 class='main-header'>🚀 SpaceX & NewSpace Tracker - Scores Boursiers Avancés</h1>", unsafe_allow_html=True)
 
+# Bannière de fuseau horaire
+current_time_paris = datetime.now(USER_TIMEZONE)
+current_time_ny = datetime.now(US_TIMEZONE)
+
+st.markdown(f"""
+<div class='timezone-badge'>
+    <b>🕐 Fuseaux horaires :</b><br>
+    🇫🇷 Heure Paris : {current_time_paris.strftime('%H:%M:%S')}<br>
+    🇺🇸 Heure Floride : {current_time_ny.strftime('%H:%M:%S')}
+</div>
+""", unsafe_allow_html=True)
+
 # Sidebar
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/d/dc/SpaceX_Logo_Black.png/800px-SpaceX_Logo_Black.png", width=200)
-    st.title("Navigation")
+    st.markdown("## 🚀 Navigation")
     
     menu = st.radio(
         "Choisir une section",
@@ -559,7 +579,6 @@ with st.sidebar:
     )
     
     st.markdown("---")
-    
     period = st.selectbox("Période technique", ["1mo", "3mo", "6mo", "1y"], index=1)
     interval = "1d"
 
@@ -570,7 +589,6 @@ with st.sidebar:
 if menu == "🏆 Classement des scores":
     st.subheader("🏆 Classement général des actions spatiales")
     
-    # Chargement des données pour toutes les actions
     all_scores = []
     progress_bar = st.progress(0)
     
@@ -578,7 +596,6 @@ if menu == "🏆 Classement des scores":
         hist_df, info = load_stock_data_cached(symbol, period, interval)
         
         if not hist_df.empty:
-            # Calcul de tous les scores
             scores = {
                 'financial': calculate_financial_score_from_info(info),
                 'technical': calculate_technical_score_from_hist(hist_df),
@@ -607,11 +624,7 @@ if menu == "🏆 Classement des scores":
                 'Score': round(composite, 1),
                 'Grade': grade,
                 'Icone': icon,
-                'Recommandation': recommendation,
-                'Financial': scores['financial'],
-                'Technical': scores['technical'],
-                'Space': scores['space_sector'],
-                'Growth': scores['growth']
+                'Recommandation': recommendation
             })
         
         progress_bar.progress((i + 1) / len(st.session_state.watchlist))
@@ -622,46 +635,43 @@ if menu == "🏆 Classement des scores":
         df_scores = pd.DataFrame(all_scores)
         df_scores = df_scores.sort_values('Score', ascending=False)
         
-        st.markdown("### 🔥 Top 10 des meilleurs scores")
+        st.markdown("### 🔥 Top 5 des meilleurs scores")
         
-        top10 = df_scores.head(10)
+        top5 = df_scores.head(5)
         
-        for idx, row in top10.iterrows():
-            score_class = row['Grade'].lower().replace(' ', '-')
-            if 'EXCELLENT' in row['Grade']:
-                score_class = "score-excellent"
-            elif 'TRÈS BON' in row['Grade']:
-                score_class = "score-good"
-            elif 'BON' in row['Grade']:
-                score_class = "score-average"
-            else:
-                score_class = "score-poor"
-                
+        for idx, row in top5.iterrows():
             st.markdown(f"""
-            <div class='score-card {score_class}' style='margin-bottom: 10px;'>
-                <table style='width: 100%; color: white;'>
-                    <tr>
-                        <td style='width: 10%; font-size: 24px;'>{row['Icone']}</td>
-                        <td style='width: 25%;'><b>{row['Symbole']}</b><br><small>{row['Entreprise']}</small></td>
-                        <td style='width: 15%;'>{row['Prix']}<br><small>{row['Perf 5j']}</small></td>
-                        <td style='width: 15%;'><b>Secteur:</b><br>{row['Secteur']}</td>
-                        <td style='width: 15%; text-align: center;'><b style='font-size: 28px;'>{row['Score']}</b><br>{row['Grade']}</td>
-                        <td style='width: 20%;'><b>Recommandation:</b><br>{row['Recommandation']}</td>
-                    </tr>
-                </table>
+            <div class='score-card {row["Grade"].lower().replace(" ", "-") if "EXCELLENT" in row["Grade"] else "score-good" if "TRÈS BON" in row["Grade"] else "score-average"}'>
+                <div style='display: flex; justify-content: space-between; align-items: center;'>
+                    <div>
+                        <span style='font-size: 24px;'>{row['Icone']}</span>
+                        <span style='font-size: 20px; font-weight: bold; margin-left: 10px;'>{row['Symbole']}</span>
+                        <span style='font-size: 14px; color: #666; margin-left: 10px;'>{row['Entreprise']}</span>
+                    </div>
+                    <div>
+                        <span style='font-size: 20px;'>{row['Prix']}</span>
+                        <span style='font-size: 14px; margin-left: 10px;'>{row['Perf 5j']}</span>
+                    </div>
+                    <div style='text-align: center;'>
+                        <span style='font-size: 32px; font-weight: bold;'>{row['Score']}</span>
+                        <br><span style='font-size: 14px;'>{row['Grade']}</span>
+                    </div>
+                    <div>
+                        <span style='font-size: 14px;'>{row['Recommandation']}</span>
+                    </div>
+                </div>
             </div>
             """, unsafe_allow_html=True)
         
         st.markdown("### 📋 Classement complet")
         st.dataframe(df_scores, use_container_width=True, height=400)
         
-        # Distribution des scores
         fig_dist = px.histogram(df_scores, x='Score', nbins=20, 
                                 title="Distribution des scores composites",
                                 color_discrete_sequence=['#005288'])
-        fig_dist.add_vline(x=70, line_dash="dash", line_color="green")
-        fig_dist.add_vline(x=55, line_dash="dash", line_color="orange")
-        fig_dist.add_vline(x=40, line_dash="dash", line_color="red")
+        fig_dist.add_vline(x=70, line_dash="dash", line_color="green", annotation_text="Excellent")
+        fig_dist.add_vline(x=55, line_dash="dash", line_color="orange", annotation_text="Bon")
+        fig_dist.update_layout(height=400)
         st.plotly_chart(fig_dist, use_container_width=True)
     else:
         st.warning("Aucune donnée disponible")
@@ -693,15 +703,14 @@ elif menu == "📊 Scoreboard détaillé":
             
             composite = calculate_composite_score(scores)
             grade, icon, css_class, recommendation = get_score_grade(composite)
-            
             current_price = hist_df['Close'].iloc[-1]
             
             st.markdown(f"""
             <div class='score-card {css_class}' style='text-align: center; padding: 2rem;'>
-                <h2 style='margin: 0;'>{icon} {selected_symbol} - {SPACE_COMPANIES.get(selected_symbol, {}).get('name', selected_symbol)}</h2>
-                <div style='font-size: 48px; font-weight: bold; margin: 20px 0;'>{composite:.1f}</div>
-                <div style='font-size: 20px;'>{grade} - {recommendation}</div>
-                <div style='margin-top: 10px;'>Prix: {format_currency(current_price)}</div>
+                <h2 style='margin: 0; color: #1a1a2e;'>{icon} {selected_symbol} - {SPACE_COMPANIES.get(selected_symbol, {}).get('name', selected_symbol)}</h2>
+                <div style='font-size: 48px; font-weight: bold; margin: 20px 0; color: #1a1a2e;'>{composite:.1f}</div>
+                <div style='font-size: 20px; color: #1a1a2e;'>{grade} - {recommendation}</div>
+                <div style='margin-top: 10px; color: #1a1a2e;'>Prix: {format_currency(current_price)}</div>
             </div>
             """, unsafe_allow_html=True)
             
@@ -710,23 +719,23 @@ elif menu == "📊 Scoreboard détaillé":
             col1, col2, col3 = st.columns(3)
             
             categories = [
-                ('💰 Financier', scores['financial'], 'Santé financière, P/E, croissance'),
-                ('📊 Technique', scores['technical'], 'Moyennes mobiles, RSI, volume'),
-                ('⚡ Momentum', scores['momentum'], 'MACD, Bollinger, ADX'),
-                ('🛰️ Spatial', scores['space_sector'], 'Secteur spatial, contrats, innovation'),
-                ('🌿 ESG', scores['esg'], 'Environnement, social, gouvernance'),
-                ('⚠️ Risque', scores['risk'], 'Volatilité, drawdown maximum'),
-                ('💧 Liquidité', scores['liquidity'], 'Volume, spread, accessibilité'),
-                ('🚀 Croissance', scores['growth'], 'Potentiel, revenue growth, small cap'),
-                ('🎯 Analystes', scores['analyst'], 'Consensus, price target, recommandations')
+                ('💰 Financier', scores['financial'], 'Santé financière, P/E'),
+                ('📊 Technique', scores['technical'], 'Moyennes mobiles, RSI'),
+                ('⚡ Momentum', scores['momentum'], 'MACD, Bollinger'),
+                ('🛰️ Spatial', scores['space_sector'], 'Secteur spatial'),
+                ('🌿 ESG', scores['esg'], 'Environnement, social'),
+                ('⚠️ Risque', scores['risk'], 'Volatilité'),
+                ('💧 Liquidité', scores['liquidity'], 'Volume'),
+                ('🚀 Croissance', scores['growth'], 'Potentiel'),
+                ('🎯 Analystes', scores['analyst'], 'Consensus')
             ]
             
             for i, (name, score, desc) in enumerate(categories):
                 with [col1, col2, col3][i % 3]:
                     st.markdown(f"""
-                    <div class='metric-card' style='margin: 5px 0;'>
+                    <div class='metric-card'>
                         <b>{name}</b><br>
-                        <span style='font-size: 32px; font-weight: bold;'>{score}</span>
+                        <span style='font-size: 28px; font-weight: bold;'>{score}</span>
                         <br><small>{desc}</small>
                     </div>
                     """, unsafe_allow_html=True)
@@ -742,23 +751,21 @@ elif menu == "📊 Scoreboard détaillé":
                 theta=labels_radar + [labels_radar[0]],
                 fill='toself',
                 name=selected_symbol,
-                line_color='#005288'
+                line_color='#005288',
+                fillcolor='rgba(0,82,136,0.3)'
             ))
             fig_radar.update_layout(
                 polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
                 showlegend=True,
                 height=500,
-                title=f"Profil de score - {selected_symbol}"
+                title=f"Profil de score - {selected_symbol}",
+                font=dict(color='#1a1a2e')
             )
             st.plotly_chart(fig_radar, use_container_width=True)
             
             # Recommandation
             if composite >= 70:
-                st.success(f"""
-                **{icon} RECOMMANDATION : ACHAT FORT**
-                
-                {selected_symbol} affiche un score excellent de {composite:.1f}/100.
-                """)
+                st.success(f"**{icon} RECOMMANDATION : ACHAT FORT** - Score: {composite:.1f}/100")
             elif composite >= 55:
                 st.info(f"**{icon} RECOMMANDATION : ACCUMULATION** - Score: {composite:.1f}/100")
             elif composite >= 40:
@@ -845,11 +852,11 @@ elif menu == "💼 Portefeuille & Scores":
                 
                 score_class = "score-excellent" if portfolio_score >= 70 else "score-good" if portfolio_score >= 55 else "score-average"
                 st.markdown(f"""
-                <div class='score-card {score_class}'>
-                    <h3>📊 Score global du portefeuille</h3>
-                    <div style='font-size: 48px;'>{portfolio_score:.1f}/100</div>
-                    <div>{get_score_grade(portfolio_score)[0]}</div>
-                    <div>Valeur totale: {format_currency(total_value)}</div>
+                <div class='score-card {score_class}' style='text-align: center;'>
+                    <h3 style='color: #1a1a2e;'>📊 Score global du portefeuille</h3>
+                    <div style='font-size: 48px; font-weight: bold; color: #1a1a2e;'>{portfolio_score:.1f}/100</div>
+                    <div style='color: #1a1a2e;'>{get_score_grade(portfolio_score)[0]}</div>
+                    <div style='color: #1a1a2e;'>Valeur totale: {format_currency(total_value)}</div>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -1016,8 +1023,6 @@ elif menu == "📤 Export scores":
 # Footer
 st.markdown("---")
 st.markdown(
-    "<p style='text-align: center; color: gray; font-size: 0.8rem;'>"
-    "🚀 SpaceX & NewSpace Tracker - Scores Boursiers Avancés"
-    "</p>",
+    "<p class='footer-text'>🚀 SpaceX & NewSpace Tracker - Scores Boursiers Avancés | Données yfinance | Scores basés sur fondamentaux, technique, momentum, secteur spatial, ESG, risque, liquidité, croissance et analystes</p>",
     unsafe_allow_html=True
 )
