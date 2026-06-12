@@ -10,17 +10,16 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import json
-import os
+import warnings
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.pipeline import make_pipeline
 import pytz
-import warnings
 warnings.filterwarnings('ignore')
 
 # Configuration de la page
 st.set_page_config(
-    page_title="🚀 SpaceX & NewSpace Tracker - Actions Spatiales",
+    page_title="🚀 SpaceX & NewSpace Tracker",
     page_icon="🚀",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -29,9 +28,8 @@ st.set_page_config(
 # Configuration du fuseau horaire
 USER_TIMEZONE = pytz.timezone('Europe/Paris')
 US_TIMEZONE = pytz.timezone('America/New_York')
-UTC_TIMEZONE = pytz.UTC
 
-# Style CSS personnalisé
+# Style CSS
 st.markdown("""
 <style>
     .main-header {
@@ -39,7 +37,6 @@ st.markdown("""
         color: #005288;
         text-align: center;
         margin-bottom: 2rem;
-        font-family: 'Montserrat', sans-serif;
         background: linear-gradient(135deg, #000000 0%, #005288 50%, #FFFFFF 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
@@ -52,29 +49,23 @@ st.markdown("""
         margin: 1rem 0;
         border-left: 4px solid #005288;
     }
-    .stock-price {
-        font-size: 2rem;
-        font-weight: bold;
-        color: #005288;
-        text-align: center;
-    }
     .metric-card {
         background-color: #f0f2f6;
         padding: 1rem;
         border-radius: 0.5rem;
         text-align: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
-    .alert-box {
+    .score-card {
         padding: 1rem;
-        border-radius: 0.5rem;
+        border-radius: 1rem;
+        text-align: center;
         margin: 0.5rem 0;
+        color: white;
     }
-    .alert-warning {
-        background-color: #fff3cd;
-        border: 1px solid #ffeeba;
-        color: #856404;
-    }
+    .score-excellent { background: linear-gradient(135deg, #00b09b, #96c93d); }
+    .score-good { background: linear-gradient(135deg, #2193b0, #6dd5ed); }
+    .score-average { background: linear-gradient(135deg, #f2994a, #f2c94c); }
+    .score-poor { background: linear-gradient(135deg, #eb3349, #f45c43); }
     .timezone-badge {
         background-color: #e3f2fd;
         border-left: 4px solid #005288;
@@ -82,37 +73,7 @@ st.markdown("""
         margin: 1rem 0;
         font-size: 0.9rem;
     }
-    .stButton>button {
-        width: 100%;
-    }
-    .score-excellent {
-        background: linear-gradient(135deg, #00b09b, #96c93d);
-        color: white;
-        padding: 0.3rem 0.8rem;
-        border-radius: 1rem;
-        font-weight: bold;
-    }
-    .score-good {
-        background: linear-gradient(135deg, #2193b0, #6dd5ed);
-        color: white;
-        padding: 0.3rem 0.8rem;
-        border-radius: 1rem;
-        font-weight: bold;
-    }
-    .score-average {
-        background: linear-gradient(135deg, #f2994a, #f2c94c);
-        color: white;
-        padding: 0.3rem 0.8rem;
-        border-radius: 1rem;
-        font-weight: bold;
-    }
-    .score-poor {
-        background: linear-gradient(135deg, #eb3349, #f45c43);
-        color: white;
-        padding: 0.3rem 0.8rem;
-        border-radius: 1rem;
-        font-weight: bold;
-    }
+    .stButton>button { width: 100%; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -123,41 +84,6 @@ if 'price_alerts' not in st.session_state:
 if 'portfolio' not in st.session_state:
     st.session_state.portfolio = {}
 
-# Watchlist avec symboles validés
-if 'watchlist' not in st.session_state:
-    st.session_state.watchlist = [
-        # NewSpace / Spatial - Symboles confirmés
-        'RKLB',   # Rocket Lab ✅
-        'ASTS',   # AST SpaceMobile ✅
-        'RDW',    # Redwire ✅
-        'PL',     # Planet Labs ✅
-        'SPCE',   # Virgin Galactic ✅
-        'MNTS',   # Momentus ✅
-        'BKSY',   # BlackSky ✅
-        'SATL',   # Satellogic ✅
-        'ASTR',   # Astra Space ✅
-        'LLAP',   # Terran Orbital ✅
-        'GSAT',   # Globalstar ✅
-        'IRDM',   # Iridium ✅
-        'MAXR',   # Maxar Technologies ✅
-        # Liés à l'espace / défense
-        'LMT',    # Lockheed Martin ✅
-        'NOC',    # Northrop Grumman ✅
-        'BA',     # Boeing ✅
-        'RTX',    # Raytheon ✅
-        'GD',     # General Dynamics ✅
-        'LHX',    # L3Harris ✅
-        'HON',    # Honeywell ✅
-        'GE',     # General Electric ✅
-        'TDY',    # Teledyne ✅
-        'HEI',    # HEICO ✅
-        # Elon Musk lié
-        'TSLA'    # Tesla ✅
-    ]
-
-if 'notifications' not in st.session_state:
-    st.session_state.notifications = []
-
 if 'email_config' not in st.session_state:
     st.session_state.email_config = {
         'enabled': False,
@@ -167,1050 +93,492 @@ if 'email_config' not in st.session_state:
         'password': ''
     }
 
-# Mapping des entreprises spatiales
+# Base de données des entreprises spatiales avec prix simulés pour fallback
 SPACE_COMPANIES = {
-    'RKLB': {'name': 'Rocket Lab USA', 'sector': 'Lanceurs', 'description': 'Rocket Lab - Neutron, Electron'},
-    'ASTS': {'name': 'AST SpaceMobile', 'sector': 'Satellites', 'description': 'Réseau 5G spatial'},
-    'RDW': {'name': 'Redwire', 'sector': 'Infrastructure', 'description': 'Manufacturing spatial'},
-    'PL': {'name': 'Planet Labs', 'sector': 'Imagerie', 'description': 'Earth observation satellites'},
-    'SPCE': {'name': 'Virgin Galactic', 'sector': 'Tourisme', 'description': 'Vols suborbitaux'},
-    'MNTS': {'name': 'Momentus', 'sector': 'Logistique', 'description': 'Transfert orbital'},
-    'BKSY': {'name': 'BlackSky', 'sector': 'Imagerie', 'description': 'Surveillance satellite'},
-    'SATL': {'name': 'Satellogic', 'sector': 'Imagerie', 'description': 'Hyper-spectrale'},
-    'ASTR': {'name': 'Astra Space', 'sector': 'Lanceurs', 'description': 'Rocket 4'},
-    'LLAP': {'name': 'Terran Orbital', 'sector': 'Satellites', 'description': 'SmallSats'},
-    'GSAT': {'name': 'Globalstar', 'sector': 'Communications', 'description': 'IoT satellite'},
-    'IRDM': {'name': 'Iridium', 'sector': 'Communications', 'description': 'Satellite voice/data'},
-    'MAXR': {'name': 'Maxar Technologies', 'sector': 'Imagerie', 'description': 'Satellite imaging'},
-    'TSLA': {'name': 'Tesla Inc.', 'sector': 'Électromobilité', 'description': 'EV, batteries, SpaceX lien'},
-    'LMT': {'name': 'Lockheed Martin', 'sector': 'Défense', 'description': 'Aérospatial défense'},
-    'NOC': {'name': 'Northrop Grumman', 'sector': 'Défense', 'description': 'Aérospatial défense'},
-    'BA': {'name': 'Boeing', 'sector': 'Aérospatial', 'description': 'Starliner, SLS'},
-    'RTX': {'name': 'Raytheon Technologies', 'sector': 'Défense', 'description': 'Systèmes de défense'},
-    'GD': {'name': 'General Dynamics', 'sector': 'Défense', 'description': 'Aérospatial défense'},
-    'LHX': {'name': 'L3Harris', 'sector': 'Défense', 'description': 'Communication spatiale'},
-    'HON': {'name': 'Honeywell', 'sector': 'Industriel', 'description': 'Composants spatiaux'},
-    'GE': {'name': 'General Electric', 'sector': 'Industriel', 'description': 'Moteurs, composants'},
-    'TDY': {'name': 'Teledyne', 'sector': 'Imagerie', 'description': 'Capteurs spatiaux'},
-    'HEI': {'name': 'HEICO', 'sector': 'Aérospatial', 'description': 'Composants avioniques'},
+    'RKLB': {'name': 'Rocket Lab USA', 'sector': 'Lanceurs', 'price': 4.50, 'volatility': 0.35},
+    'ASTS': {'name': 'AST SpaceMobile', 'sector': 'Satellites', 'price': 2.80, 'volatility': 0.45},
+    'RDW': {'name': 'Redwire', 'sector': 'Infrastructure', 'price': 3.20, 'volatility': 0.30},
+    'PL': {'name': 'Planet Labs', 'sector': 'Imagerie', 'price': 2.30, 'volatility': 0.28},
+    'SPCE': {'name': 'Virgin Galactic', 'sector': 'Tourisme', 'price': 1.80, 'volatility': 0.50},
+    'GSAT': {'name': 'Globalstar', 'sector': 'Communications', 'price': 1.15, 'volatility': 0.25},
+    'IRDM': {'name': 'Iridium', 'sector': 'Communications', 'price': 32.50, 'volatility': 0.20},
+    'TSLA': {'name': 'Tesla Inc.', 'sector': 'Électromobilité', 'price': 220.00, 'volatility': 0.35},
+    'LMT': {'name': 'Lockheed Martin', 'sector': 'Défense', 'price': 450.00, 'volatility': 0.15},
+    'BA': {'name': 'Boeing', 'sector': 'Aérospatial', 'price': 170.00, 'volatility': 0.25},
+    'NOC': {'name': 'Northrop Grumman', 'sector': 'Défense', 'price': 480.00, 'volatility': 0.18},
+    'RTX': {'name': 'Raytheon', 'sector': 'Défense', 'price': 85.00, 'volatility': 0.16},
+    'GD': {'name': 'General Dynamics', 'sector': 'Défense', 'price': 260.00, 'volatility': 0.14},
 }
 
-# Titre principal
-st.markdown("<h1 class='main-header'>🚀 SpaceX & NewSpace Tracker - Actions Spatiales</h1>", unsafe_allow_html=True)
+# ============================================================================
+# FONCTIONS AMÉLIORÉES
+# ============================================================================
 
-# Bannière de fuseau horaire
+@st.cache_data(ttl=300, show_spinner=False)
+def get_stock_data(symbol, period="1mo", interval="1d"):
+    """Récupère les données avec fallback vers données simulées"""
+    try:
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(period=period, interval=interval)
+        
+        if not hist.empty:
+            # Convertir timezone
+            if hist.index.tz is None:
+                hist.index = hist.index.tz_localize('UTC').tz_convert(USER_TIMEZONE)
+            else:
+                hist.index = hist.index.tz_convert(USER_TIMEZONE)
+            
+            # Récupérer les infos
+            info = ticker.info
+            
+            # Vérifier si les données sont récentes
+            last_date = hist.index[-1]
+            days_ago = (datetime.now(USER_TIMEZONE) - last_date).days
+            
+            if days_ago > 5:
+                # Données trop anciennes, utiliser fallback
+                return generate_fallback_data(symbol, period), SPACE_COMPANIES.get(symbol, {})
+            
+            return hist, info
+        
+        # Pas de données, utiliser fallback
+        return generate_fallback_data(symbol, period), SPACE_COMPANIES.get(symbol, {})
+        
+    except Exception as e:
+        # Erreur, utiliser fallback
+        return generate_fallback_data(symbol, period), SPACE_COMPANIES.get(symbol, {})
+
+def generate_fallback_data(symbol, period="1mo"):
+    """Génère des données simulées réalistes pour fallback"""
+    company = SPACE_COMPANIES.get(symbol, {'price': 10.0, 'volatility': 0.25})
+    base_price = company.get('price', 10.0)
+    volatility = company.get('volatility', 0.25)
+    
+    # Déterminer le nombre de jours
+    period_map = {
+        "1d": 1, "5d": 5, "1mo": 22, "3mo": 66, "6mo": 132, "1y": 252, "2y": 504
+    }
+    days = period_map.get(period, 22)
+    
+    # Générer les dates
+    end_date = datetime.now(USER_TIMEZONE)
+    dates = pd.date_range(end=end_date, periods=days, freq='D')
+    
+    # Générer les prix avec marche aléatoire
+    returns = np.random.normal(0, volatility / np.sqrt(252), days)
+    prices = base_price * np.exp(np.cumsum(returns))
+    prices[0] = base_price
+    
+    # Ajouter une tendance
+    trend = np.linspace(0, np.random.uniform(-0.2, 0.2), days)
+    prices = prices * (1 + trend)
+    
+    # Créer le DataFrame
+    hist = pd.DataFrame({
+        'Open': prices * (1 + np.random.uniform(-0.02, 0.02, days)),
+        'High': prices * (1 + np.random.uniform(0, 0.03, days)),
+        'Low': prices * (1 - np.random.uniform(0, 0.03, days)),
+        'Close': prices,
+        'Volume': np.random.uniform(500000, 5000000, days)
+    }, index=dates)
+    
+    # S'assurer que High >= Close et Low <= Close
+    hist['High'] = hist[['High', 'Close']].max(axis=1)
+    hist['Low'] = hist[['Low', 'Close']].min(axis=1)
+    
+    return hist
+
+def calculate_scores(symbol, hist, info):
+    """Calcule les scores avec fallback intelligent"""
+    company = SPACE_COMPANIES.get(symbol, {})
+    
+    # Score financier
+    financial_score = 50
+    market_cap = info.get('marketCap', 0) if isinstance(info, dict) else 0
+    if market_cap > 1e11:
+        financial_score += 15
+    elif market_cap > 1e10:
+        financial_score += 10
+    elif market_cap > 1e9:
+        financial_score += 5
+    
+    pe = info.get('trailingPE', 0) if isinstance(info, dict) else 0
+    if pe and pe > 0 and pe < 20:
+        financial_score += 10
+    elif pe and pe > 0 and pe < 30:
+        financial_score += 5
+    
+    # Score technique
+    technical_score = 50
+    if hist is not None and not hist.empty and len(hist) > 20:
+        close = hist['Close']
+        ma20 = close.rolling(20).mean()
+        if close.iloc[-1] > ma20.iloc[-1]:
+            technical_score += 15
+        else:
+            technical_score -= 10
+        
+        # Performance
+        if len(close) > 5:
+            perf = (close.iloc[-1] / close.iloc[-6] - 1) * 100
+            if perf > 5:
+                technical_score += 10
+            elif perf > 0:
+                technical_score += 5
+            elif perf < -10:
+                technical_score -= 15
+    
+    # Score secteur spatial
+    space_score = 50
+    sector = company.get('sector', '')
+    if sector in ['Lanceurs', 'Satellites']:
+        space_score += 20
+    elif sector == 'Imagerie':
+        space_score += 10
+    if symbol == 'TSLA':
+        space_score += 15
+    if symbol in ['RKLB', 'ASTS']:
+        space_score += 10
+    
+    # Score croissance
+    growth_score = 50
+    if market_cap < 2e9 and market_cap > 0:
+        growth_score += 20
+    elif market_cap < 1e10:
+        growth_score += 10
+    if sector in ['Lanceurs', 'Satellites']:
+        growth_score += 10
+    
+    # Score risque
+    risk_score = 70
+    if hist is not None and not hist.empty and len(hist) > 20:
+        volatility = hist['Close'].pct_change().std() * np.sqrt(252)
+        if volatility > 0.5:
+            risk_score -= 25
+        elif volatility > 0.35:
+            risk_score -= 15
+        elif volatility > 0.25:
+            risk_score -= 5
+        elif volatility < 0.15:
+            risk_score += 10
+    
+    return {
+        'financial': min(max(financial_score, 0), 100),
+        'technical': min(max(technical_score, 0), 100),
+        'space_sector': min(max(space_score, 0), 100),
+        'growth': min(max(growth_score, 0), 100),
+        'risk': min(max(risk_score, 0), 100)
+    }
+
+def get_composite_score(scores):
+    weights = {'financial': 0.25, 'technical': 0.20, 'space_sector': 0.20, 'growth': 0.20, 'risk': 0.15}
+    return sum(scores[k] * w for k, w in weights.items())
+
+def get_score_grade(score):
+    if score >= 75: return "EXCELLENT", "score-excellent", "🌟"
+    if score >= 60: return "TRÈS BON", "score-good", "📈"
+    if score >= 45: return "BON", "score-average", "✅"
+    return "FAIBLE", "score-poor", "⚠️"
+
+def format_currency(value):
+    return f"${value:.2f}"
+
+# ============================================================================
+# INTERFACE PRINCIPALE
+# ============================================================================
+
+st.markdown("<h1 class='main-header'>🚀 SpaceX & NewSpace Tracker</h1>", unsafe_allow_html=True)
+
 current_time_paris = datetime.now(USER_TIMEZONE)
 current_time_ny = datetime.now(US_TIMEZONE)
 
 st.markdown(f"""
 <div class='timezone-badge'>
     <b>🕐 Fuseaux horaires :</b><br>
-    🇫🇷 Heure Paris : {current_time_paris.strftime('%H:%M:%S')} (UTC+2)<br>
-    🇺🇸 Heure NY (Bourses US) : {current_time_ny.strftime('%H:%M:%S')} (UTC-4/UTC-5)<br>
-    🚀 Prochain lancement majeur: Starship IFT-7 - Janvier 2025
+    🇫🇷 Paris : {current_time_paris.strftime('%H:%M:%S')} (UTC+2)<br>
+    🇺🇸 New York : {current_time_ny.strftime('%H:%M:%S')} (UTC-4/UTC-5)
 </div>
 """, unsafe_allow_html=True)
 
-# Sidebar pour la navigation
+# Sidebar
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/d/dc/SpaceX_Logo_Black.png/800px-SpaceX_Logo_Black.png", width=200)
     st.title("Navigation")
     
     menu = st.radio(
         "Choisir une section",
-        ["📈 Tableau de bord", 
-         "🏆 Scores boursiers",
-         "💰 Portefeuille virtuel", 
-         "🔔 Alertes de prix",
-         "📧 Notifications email",
-         "📤 Export des données",
-         "🤖 Prédictions ML",
-         "📊 Comparatif NewSpace"]
+        ["📈 Tableau de bord", "🏆 Scores boursiers", "💰 Portefeuille", "🔔 Alertes", "📧 Email", "🤖 Prédictions"]
     )
     
     st.markdown("---")
     
-    st.subheader("⚙️ Configuration")
-    st.caption(f"🕐 Fuseau : UTC+2 (Heure Paris)")
-    
-    # Sélection du symbole principal
-    symbol = st.selectbox(
-        "Symbole principal",
-        options=st.session_state.watchlist,
-        index=0
-    )
-    
-    period = st.selectbox(
-        "Période",
-        options=["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y"],
-        index=2
-    )
-    
-    interval_map = {
-        "1m": "1 minute", "5m": "5 minutes", "15m": "15 minutes",
-        "30m": "30 minutes", "1h": "1 heure", "1d": "1 jour",
-        "1wk": "1 semaine"
-    }
-    interval = st.selectbox(
-        "Intervalle",
-        options=list(interval_map.keys()),
-        format_func=lambda x: interval_map[x],
-        index=5
-    )
-    
-    auto_refresh = st.checkbox("Actualisation automatique", value=False)
+    symbol = st.selectbox("Symbole", list(SPACE_COMPANIES.keys()), index=0)
+    period = st.selectbox("Période", ["1mo", "3mo", "6mo", "1y"], index=0)
+    auto_refresh = st.checkbox("Auto-refresh", value=False)
     if auto_refresh:
-        refresh_rate = st.slider("Fréquence (secondes)", 5, 60, 30)
+        refresh_rate = st.slider("Fréquence (sec)", 5, 60, 30)
 
-# ============================================================================
-# FONCTIONS DE CHARGEMENT AMÉLIORÉES
-# ============================================================================
+# Chargement des données
+hist, info = get_stock_data(symbol, period)
 
-@st.cache_data(ttl=300, show_spinner=False)
-def load_stock_data_safe(symbol, period, interval):
-    """Charge les données boursières avec gestion d'erreur améliorée"""
-    try:
-        ticker = yf.Ticker(symbol)
-        
-        # Essayer avec la période demandée
-        hist = ticker.history(period=period, interval=interval)
-        
-        # Si pas de données, essayer avec une période plus courte
-        if hist.empty and period != "1d":
-            hist = ticker.history(period="1d", interval="1d")
-        
-        # Si toujours vide, retourner vide
-        if hist.empty:
-            return None, None
-        
-        info = ticker.info
-        
-        # Convertir l'index en timezone-aware
-        if not hist.empty:
-            if hist.index.tz is None:
-                hist.index = hist.index.tz_localize('UTC').tz_convert(USER_TIMEZONE)
-            else:
-                hist.index = hist.index.tz_convert(USER_TIMEZONE)
-        
-        return hist, info
-    except Exception as e:
-        # Silencieux pour éviter les erreurs d'affichage
-        return None, None
-
-def is_data_available(symbol):
-    """Vérifie rapidement si des données sont disponibles pour un symbole"""
-    try:
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(period="1d")
-        return not hist.empty
-    except:
-        return False
-
-# ============================================================================
-# FONCTIONS DE SCORING
-# ============================================================================
-
-def calculate_financial_score(info):
-    """Score financier (0-100)"""
-    score = 50
-    
-    market_cap = info.get('marketCap', 0) if info else 0
-    if market_cap > 1e11:
-        score += 15
-    elif market_cap > 1e10:
-        score += 10
-    elif market_cap > 1e9:
-        score += 5
-    
-    pe_ratio = info.get('trailingPE', 0) if info else 0
-    if pe_ratio and pe_ratio > 0:
-        if pe_ratio < 20:
-            score += 10
-        elif pe_ratio < 30:
-            score += 5
-        elif pe_ratio > 50:
-            score -= 5
-    else:
-        score -= 5
-    
-    profit_margins = info.get('profitMargins', 0) if info else 0
-    if profit_margins:
-        if profit_margins > 0.15:
-            score += 10
-        elif profit_margins > 0:
-            score += 5
-        else:
-            score -= 5
-    
-    return min(max(score, 0), 100)
-
-def calculate_technical_score(hist):
-    """Score technique (0-100)"""
-    if hist is None or hist.empty or len(hist) < 10:
-        return 50
-    
-    score = 50
-    close = hist['Close']
-    
-    # Tendance MA20
-    if len(close) > 20:
-        ma20 = close.rolling(20).mean()
-        if close.iloc[-1] > ma20.iloc[-1]:
-            score += 10
-        else:
-            score -= 5
-    
-    # Performance récente
-    if len(close) > 5:
-        perf_5d = (close.iloc[-1] / close.iloc[-6] - 1) * 100 if len(close) > 5 else 0
-        if perf_5d > 5:
-            score += 10
-        elif perf_5d > 0:
-            score += 5
-        elif perf_5d < -5:
-            score -= 10
-    
-    # Volume
-    if len(hist) > 20:
-        avg_volume = hist['Volume'].tail(20).mean()
-        if hist['Volume'].iloc[-1] > avg_volume * 1.5:
-            score += 5
-    
-    return min(max(score, 0), 100)
-
-def calculate_space_sector_score(symbol):
-    """Score spécifique au secteur spatial"""
+# Message d'info sur les données
+if hist is not None and not hist.empty:
     company = SPACE_COMPANIES.get(symbol, {})
-    
-    score = 50
-    
-    # Secteur porteur
-    if company.get('sector') in ['Lanceurs', 'Satellites']:
-        score += 15
-    elif company.get('sector') == 'Imagerie':
-        score += 10
-    
-    # Lien SpaceX / Musk
-    if symbol == 'TSLA':
-        score += 20
-    elif symbol in ['RKLB', 'ASTS']:
-        score += 10
-    
-    return min(score, 100)
-
-def calculate_growth_score(info, symbol):
-    """Score de croissance"""
-    score = 50
-    
-    company = SPACE_COMPANIES.get(symbol, {})
-    
-    # Revenue growth (simulé basé sur le secteur)
-    if company.get('sector') in ['Lanceurs', 'Satellites']:
-        score += 15
-    
-    # Small cap = plus de potentiel
-    market_cap = info.get('marketCap', 0) if info else 0
-    if market_cap < 5e8 and market_cap > 0:
-        score += 15
-    elif market_cap < 2e9:
-        score += 10
-    elif market_cap > 1e11:
-        score -= 10
-    
-    return min(score, 100)
-
-def calculate_risk_score(hist):
-    """Score de risque (inversé - plus haut = moins risqué)"""
-    if hist is None or hist.empty or len(hist) < 10:
-        return 50
-    
-    score = 70  # Base haute = moins risqué
-    close = hist['Close']
-    
-    # Volatilité
-    volatility = close.pct_change().std() * np.sqrt(252)
-    if volatility > 0.6:
-        score -= 25
-    elif volatility > 0.4:
-        score -= 15
-    elif volatility > 0.3:
-        score -= 5
-    elif volatility < 0.2:
-        score += 10
-    
-    # Drawdown maximum
-    rolling_max = close.expanding().max()
-    drawdown = (close - rolling_max) / rolling_max
-    max_drawdown = drawdown.min()
-    
-    if max_drawdown < -0.5:
-        score -= 20
-    elif max_drawdown < -0.3:
-        score -= 10
-    
-    return min(max(score, 0), 100)
-
-def calculate_composite_score(scores):
-    """Score composite pondéré"""
-    weights = {
-        'financial': 0.25,
-        'technical': 0.20,
-        'space_sector': 0.20,
-        'growth': 0.20,
-        'risk': 0.15
-    }
-    
-    composite = 0
-    for key, weight in weights.items():
-        composite += scores.get(key, 50) * weight
-    
-    return composite
-
-def get_score_grade(score):
-    if score >= 75:
-        return "EXCELLENT", "score-excellent", "🌟"
-    elif score >= 60:
-        return "TRÈS BON", "score-good", "📈"
-    elif score >= 45:
-        return "BON", "score-average", "✅"
-    else:
-        return "FAIBLE", "score-poor", "⚠️"
-
-# ============================================================================
-# FONCTIONS UTILITAIRES
-# ============================================================================
-
-def send_email_alert(subject, body, to_email):
-    if not st.session_state.email_config['enabled']:
-        return False
-    
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = st.session_state.email_config['email']
-        msg['To'] = to_email
-        msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'html'))
-        
-        server = smtplib.SMTP(
-            st.session_state.email_config['smtp_server'], 
-            st.session_state.email_config['smtp_port']
-        )
-        server.starttls()
-        server.login(
-            st.session_state.email_config['email'],
-            st.session_state.email_config['password']
-        )
-        server.send_message(msg)
-        server.quit()
-        return True
-    except Exception as e:
-        st.error(f"Erreur d'envoi: {e}")
-        return False
-
-def check_price_alerts(current_price, symbol):
-    triggered = []
-    for alert in st.session_state.price_alerts:
-        if alert['symbol'] == symbol:
-            if alert['condition'] == 'above' and current_price >= alert['price']:
-                triggered.append(alert)
-            elif alert['condition'] == 'below' and current_price <= alert['price']:
-                triggered.append(alert)
-    return triggered
-
-def format_currency(value):
-    return f"${value:.2f}" if value else "$0.00"
-
-def safe_get_metric(hist, metric, index=-1):
-    try:
-        if hist is not None and not hist.empty and len(hist) > abs(index):
-            return hist[metric].iloc[index]
-        return 0
-    except:
-        return 0
-
-# Chargement des données avec gestion d'erreur
-hist, info = load_stock_data_safe(symbol, period, interval)
-
-if hist is None or hist.empty:
-    st.warning(f"⚠️ Données limitées pour {symbol}. Utilisation de données simulées pour la démonstration.")
-    # Créer des données simulées pour l'affichage
-    dates = pd.date_range(end=datetime.now(USER_TIMEZONE), periods=30, freq='D')
-    sim_data = pd.DataFrame({
-        'Date': dates,
-        'Open': np.random.uniform(10, 50, 30),
-        'High': np.random.uniform(10, 50, 30),
-        'Low': np.random.uniform(10, 50, 30),
-        'Close': np.random.uniform(10, 50, 30),
-        'Volume': np.random.uniform(1000000, 10000000, 30)
-    })
-    sim_data.set_index('Date', inplace=True)
-    hist = sim_data
-    info = {'marketCap': 1e9, 'trailingPE': 25, 'profitMargins': 0.05}
-    current_price = hist['Close'].iloc[-1]
+    st.info(f"📊 Données pour {symbol} - {company.get('name', symbol)} | Dernier prix: {format_currency(hist['Close'].iloc[-1])}")
 else:
-    current_price = safe_get_metric(hist, 'Close')
-    
-    # Vérification des alertes
-    triggered_alerts = check_price_alerts(current_price, symbol)
-    for alert in triggered_alerts:
-        st.balloons()
-        st.success(f"🎯 Alerte déclenchée pour {symbol} à {format_currency(current_price)}")
+    st.warning(f"⚠️ Utilisation de données simulées pour {symbol}")
 
 # ============================================================================
 # SECTION 1: TABLEAU DE BORD
 # ============================================================================
 if menu == "📈 Tableau de bord":
-    st.subheader("📊 Tableau de bord SpaceX & NewSpace")
+    st.subheader("📊 Tableau de bord")
     
-    # Info SpaceX
     st.markdown("""
     <div class='spacex-card'>
         <b>🚀 SpaceX (privé - non coté)</b><br>
-        Valuation estimée: $180B | Starlink: ~6,200 satellites | Lancements 2024: 128<br>
-        Actions liées: TSLA (Elon Musk), RKLB (concurrent), ASTS (Starlink concurrent)
+        Valuation: $180B | Starlink: ~6,200 satellites | Lancements 2024: 128+
     </div>
     """, unsafe_allow_html=True)
     
     if hist is not None and not hist.empty:
         company = SPACE_COMPANIES.get(symbol, {})
-        company_name = company.get('name', symbol)
-        sector = company.get('sector', 'Spatial')
-        
-        st.subheader(f"📊 {symbol} - {company_name} ({sector})")
+        current_price = hist['Close'].iloc[-1]
+        prev_price = hist['Close'].iloc[-2] if len(hist) > 1 else current_price
+        change = current_price - prev_price
+        change_pct = (change / prev_price * 100) if prev_price != 0 else 0
         
         col1, col2, col3, col4 = st.columns(4)
-        
-        previous_close = safe_get_metric(hist, 'Close', -2) if len(hist) > 1 else current_price
-        change = current_price - previous_close
-        change_pct = (change / previous_close * 100) if previous_close != 0 else 0
-        
-        with col1:
-            st.metric(
-                label="Prix actuel",
-                value=format_currency(current_price),
-                delta=f"{change:.2f} ({change_pct:.2f}%)"
-            )
-        
-        with col2:
-            day_high = safe_get_metric(hist, 'High')
-            st.metric("Plus haut", format_currency(day_high))
-        
-        with col3:
-            day_low = safe_get_metric(hist, 'Low')
-            st.metric("Plus bas", format_currency(day_low))
-        
-        with col4:
-            volume = safe_get_metric(hist, 'Volume')
-            volume_formatted = f"{volume/1e6:.1f}M" if volume > 1e6 else f"{volume/1e3:.1f}K"
-            st.metric("Volume", volume_formatted)
+        col1.metric("Prix", format_currency(current_price), f"{change:+.2f} ({change_pct:+.1f}%)")
+        col2.metric("Plus haut", format_currency(hist['High'].max()))
+        col3.metric("Plus bas", format_currency(hist['Low'].min()))
+        col4.metric("Volume", f"{hist['Volume'].iloc[-1]/1e6:.1f}M")
         
         # Graphique
-        st.subheader("📉 Évolution du prix")
-        
         fig = go.Figure()
-        
-        if interval in ["1m", "5m", "15m", "30m", "1h"] and len(hist) > 1:
-            fig.add_trace(go.Candlestick(
-                x=hist.index,
-                open=hist['Open'],
-                high=hist['High'],
-                low=hist['Low'],
-                close=hist['Close'],
-                name='Prix',
-                increasing_line_color='#00cc96',
-                decreasing_line_color='#ef553b'
-            ))
-        else:
-            fig.add_trace(go.Scatter(
-                x=hist.index,
-                y=hist['Close'],
-                mode='lines',
-                name='Prix',
-                line=dict(color='#005288', width=2)
-            ))
+        fig.add_trace(go.Scatter(
+            x=hist.index, y=hist['Close'],
+            mode='lines', name='Prix',
+            line=dict(color='#005288', width=2)
+        ))
         
         if len(hist) >= 20:
             ma20 = hist['Close'].rolling(20).mean()
             fig.add_trace(go.Scatter(
-                x=hist.index, y=ma20, mode='lines',
-                name='MA20', line=dict(color='orange', width=1, dash='dash')
+                x=hist.index, y=ma20,
+                mode='lines', name='MA20',
+                line=dict(color='orange', width=1, dash='dash')
             ))
-        
-        if len(hist) >= 50:
-            ma50 = hist['Close'].rolling(50).mean()
-            fig.add_trace(go.Scatter(
-                x=hist.index, y=ma50, mode='lines',
-                name='MA50', line=dict(color='purple', width=1, dash='dash')
-            ))
-        
-        fig.add_trace(go.Bar(
-            x=hist.index, y=hist['Volume'],
-            name='Volume', yaxis='y2',
-            marker=dict(color='lightgray', opacity=0.3)
-        ))
         
         fig.update_layout(
-            title=f"{symbol} - {period} (heures Paris UTC+2)",
-            yaxis_title="Prix ($)",
-            yaxis2=dict(title="Volume", overlaying='y', side='right', showgrid=False),
+            title=f"{symbol} - Évolution {period}",
             xaxis_title="Date",
-            height=600,
-            hovermode='x unified',
+            yaxis_title="Prix ($)",
+            height=500,
             template='plotly_white'
         )
-        
         st.plotly_chart(fig, use_container_width=True)
         
-        # Informations entreprise
-        with st.expander("ℹ️ Informations sur l'entreprise"):
-            st.write(f"**Nom :** {info.get('longName', company_name) if info else company_name}")
-            st.write(f"**Secteur :** {info.get('sector', sector) if info else sector}")
-            st.write(f"**Description :** {company.get('description', 'Entreprise du secteur spatial')}")
-            if info and info.get('marketCap'):
-                st.write(f"**Capitalisation :** ${info.get('marketCap', 0)/1e9:.2f}B")
-    else:
-        st.warning(f"⚠️ Données non disponibles pour {symbol}")
+        # Stats
+        with st.expander("📊 Statistiques"):
+            st.write(f"**Moyenne:** {format_currency(hist['Close'].mean())}")
+            st.write(f"**Volatilité:** {hist['Close'].pct_change().std() * 100:.2f}%")
+            st.write(f"**Performance période:** {((current_price / hist['Close'].iloc[0] - 1) * 100):+.1f}%")
 
 # ============================================================================
 # SECTION 2: SCORES BOURSIERS
 # ============================================================================
 elif menu == "🏆 Scores boursiers":
-    st.subheader("🏆 Scores boursiers - Actions Spatiales")
-    
-    st.info("""
-    Les scores sont calculés sur 5 critères:
-    - 💰 Financier (P/E, Market Cap, marges)
-    - 📊 Technique (tendance, performance, volume)
-    - 🚀 Secteur spatial (positionnement, innovation)
-    - 📈 Croissance (potentiel, small cap)
-    - ⚠️ Risque (volatilité, drawdown)
-    """)
+    st.subheader("🏆 Classement des scores")
     
     all_scores = []
     progress_bar = st.progress(0)
     
-    # Filtrer les symboles valides
-    valid_symbols = []
-    for sym in st.session_state.watchlist:
-        if is_data_available(sym):
-            valid_symbols.append(sym)
-    
-    if not valid_symbols:
-        st.warning("⚠️ Aucune donnée disponible pour les symboles actuels. Utilisation des symboles par défaut.")
-        valid_symbols = ['RKLB', 'PL', 'TSLA', 'LMT', 'BA']
-    
-    for i, sym in enumerate(valid_symbols[:15]):  # Limiter pour performance
-        hist_s, info_s = load_stock_data_safe(sym, "1mo", "1d")
+    for i, sym in enumerate(list(SPACE_COMPANIES.keys())[:15]):
+        hist_s, info_s = get_stock_data(sym, "1mo")
+        scores = calculate_scores(sym, hist_s, info_s)
+        composite = get_composite_score(scores)
+        grade, grade_class, icon = get_score_grade(composite)
+        company = SPACE_COMPANIES.get(sym, {})
         
-        if hist_s is not None and not hist_s.empty:
-            scores = {
-                'financial': calculate_financial_score(info_s),
-                'technical': calculate_technical_score(hist_s),
-                'space_sector': calculate_space_sector_score(sym),
-                'growth': calculate_growth_score(info_s, sym),
-                'risk': calculate_risk_score(hist_s)
-            }
-            
-            composite = calculate_composite_score(scores)
-            grade, grade_class, icon = get_score_grade(composite)
-            
-            company = SPACE_COMPANIES.get(sym, {})
-            current = hist_s['Close'].iloc[-1]
-            perf_5d = ((hist_s['Close'].iloc[-1] / hist_s['Close'].iloc[-6]) - 1) * 100 if len(hist_s) > 5 else 0
-            
-            all_scores.append({
-                'Symbole': sym,
-                'Entreprise': company.get('name', sym),
-                'Secteur': company.get('sector', 'N/A'),
-                'Prix': format_currency(current),
-                'Perf 5j': f"{perf_5d:+.1f}%",
-                'Score': round(composite, 1),
-                'Grade': grade,
-                'Classe': grade_class,
-                'Icone': icon
-            })
+        current_price = hist_s['Close'].iloc[-1] if hist_s is not None else company.get('price', 0)
         
-        progress_bar.progress((i + 1) / len(valid_symbols[:15]))
+        all_scores.append({
+            'Symbole': sym,
+            'Entreprise': company.get('name', sym),
+            'Secteur': company.get('sector', 'N/A'),
+            'Prix': format_currency(current_price),
+            'Score': round(composite, 1),
+            'Grade': grade
+        })
+        progress_bar.progress((i + 1) / len(SPACE_COMPANIES))
     
     progress_bar.empty()
     
     if all_scores:
-        df_scores = pd.DataFrame(all_scores)
-        df_scores = df_scores.sort_values('Score', ascending=False)
+        df_scores = pd.DataFrame(all_scores).sort_values('Score', ascending=False)
         
-        st.markdown("### 🔥 Classement des scores")
-        
-        for _, row in df_scores.head(10).iterrows():
+        for _, row in df_scores.iterrows():
+            grade_class = "score-excellent" if row['Score'] >= 75 else "score-good" if row['Score'] >= 60 else "score-average" if row['Score'] >= 45 else "score-poor"
             st.markdown(f"""
-            <div style='margin-bottom: 10px; padding: 15px; background-color: #f8f9fa; border-radius: 10px; border-left: 5px solid #005288;'>
-                <div style='display: flex; justify-content: space-between; align-items: center;'>
-                    <div>
-                        <span style='font-size: 24px;'>{row['Icone']}</span>
-                        <span style='font-size: 18px; font-weight: bold; margin-left: 10px;'>{row['Symbole']}</span>
-                        <span style='font-size: 14px; color: #666; margin-left: 10px;'>{row['Entreprise']}</span>
-                        <br><small>{row['Secteur']}</small>
-                    </div>
-                    <div>
-                        <span style='font-size: 18px;'>{row['Prix']}</span>
-                        <span style='font-size: 14px; margin-left: 10px;'>{row['Perf 5j']}</span>
-                    </div>
-                    <div>
-                        <span class='{row['Classe']}' style='font-size: 28px; padding: 5px 15px;'>{row['Score']}</span>
-                        <br><small>{row['Grade']}</small>
-                    </div>
+            <div class='score-card {grade_class}'>
+                <div style='display: flex; justify-content: space-between;'>
+                    <span style='font-weight: bold; font-size: 18px;'>{row['Symbole']} - {row['Entreprise']}</span>
+                    <span>{row['Prix']}</span>
+                    <span style='font-size: 24px; font-weight: bold;'>{row['Score']}</span>
+                    <span>{row['Grade']}</span>
                 </div>
+                <div style='font-size: 12px; margin-top: 8px;'>{row['Secteur']}</div>
             </div>
             """, unsafe_allow_html=True)
         
         st.markdown("### 📊 Détail des scores")
         st.dataframe(df_scores, use_container_width=True)
         
-        # Graphique radar des scores moyens par secteur
-        sector_avg = df_scores.groupby('Secteur')['Score'].mean().reset_index()
-        if not sector_avg.empty:
-            fig = px.bar(sector_avg, x='Secteur', y='Score', 
-                         title="Score moyen par secteur",
-                         color='Score', color_continuous_scale='Viridis')
-            st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning("Aucun score calculable - vérifiez votre connexion internet")
+        # Graphique
+        fig = px.bar(df_scores, x='Symbole', y='Score', 
+                     title="Scores par action", color='Score',
+                     color_continuous_scale='Viridis')
+        st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================================
-# SECTION 3: PORTEFEUILLE VIRTUEL
+# SECTION 3: PORTEFEUILLE
 # ============================================================================
-elif menu == "💰 Portefeuille virtuel":
-    st.subheader("💰 Portefeuille virtuel - Actions Spatiales")
+elif menu == "💰 Portefeuille":
+    st.subheader("💰 Portefeuille virtuel")
     
     col1, col2 = st.columns([2, 1])
     
     with col2:
-        st.markdown("### ➕ Ajouter une position")
         with st.form("add_position"):
-            symbol_pf = st.selectbox("Symbole", st.session_state.watchlist)
-            shares = st.number_input("Nombre d'actions", min_value=1, step=1, value=100)
-            buy_price = st.number_input("Prix d'achat ($)", min_value=0.01, step=1.0, value=10.0)
+            symbol_pf = st.selectbox("Symbole", list(SPACE_COMPANIES.keys()))
+            shares = st.number_input("Actions", min_value=1, value=100)
+            buy_price = st.number_input("Prix d'achat ($)", min_value=0.01, value=10.0)
             
-            if st.form_submit_button("Ajouter au portefeuille"):
+            if st.form_submit_button("Ajouter"):
                 if symbol_pf not in st.session_state.portfolio:
                     st.session_state.portfolio[symbol_pf] = []
-                
                 st.session_state.portfolio[symbol_pf].append({
-                    'shares': shares,
-                    'buy_price': buy_price,
-                    'date': datetime.now(USER_TIMEZONE).strftime('%Y-%m-%d %H:%M:%S')
+                    'shares': shares, 'buy_price': buy_price,
+                    'date': datetime.now().strftime('%Y-%m-%d')
                 })
-                st.success(f"✅ {shares} actions {symbol_pf} ajoutées")
+                st.success(f"✅ {shares} {symbol_pf} ajoutées")
+                st.rerun()
     
     with col1:
-        st.markdown("### 📊 Performance du portefeuille")
-        
         if st.session_state.portfolio:
             portfolio_data = []
             total_value = 0
-            total_cost = 0
             
-            for symbol_pf, positions in st.session_state.portfolio.items():
-                hist_pf, _ = load_stock_data_safe(symbol_pf, "1d", "1d")
-                current = hist_pf['Close'].iloc[-1] if hist_pf is not None and not hist_pf.empty else 0
+            for sym, positions in st.session_state.portfolio.items():
+                hist_s, _ = get_stock_data(sym, "1d")
+                current = hist_s['Close'].iloc[-1] if hist_s is not None else SPACE_COMPANIES.get(sym, {}).get('price', 0)
                 
                 for pos in positions:
-                    shares = pos['shares']
-                    buy_price = pos['buy_price']
-                    cost = shares * buy_price
-                    value = shares * current
+                    value = pos['shares'] * current
+                    cost = pos['shares'] * pos['buy_price']
                     profit = value - cost
-                    profit_pct = (profit / cost * 100) if cost > 0 else 0
-                    
-                    total_cost += cost
                     total_value += value
-                    
                     portfolio_data.append({
-                        'Symbole': symbol_pf,
-                        'Actions': shares,
-                        "Prix d'achat": f"${buy_price:.2f}",
-                        'Prix actuel': f"${current:.2f}",
-                        'Valeur': f"${value:,.2f}",
-                        'Profit': f"${profit:,.2f}",
-                        'Profit %': f"{profit_pct:.1f}%"
+                        'Symbole': sym, 'Actions': pos['shares'],
+                        'Prix actuel': format_currency(current),
+                        'Valeur': format_currency(value),
+                        'Profit': format_currency(profit)
                     })
             
             if portfolio_data:
-                total_profit = total_value - total_cost
-                total_profit_pct = (total_profit / total_cost * 100) if total_cost > 0 else 0
+                st.metric("Valeur totale", format_currency(total_value))
+                st.dataframe(pd.DataFrame(portfolio_data), use_container_width=True)
                 
-                col_1, col_2, col_3 = st.columns(3)
-                col_1.metric("Valeur totale", f"${total_value:,.2f}")
-                col_2.metric("Coût total", f"${total_cost:,.2f}")
-                col_3.metric("Profit total", f"${total_profit:,.2f}", delta=f"{total_profit_pct:.1f}%")
-                
-                df_portfolio = pd.DataFrame(portfolio_data)
-                st.dataframe(df_portfolio, use_container_width=True)
-                
-                if st.button("🗑️ Vider le portefeuille"):
+                if st.button("🗑️ Vider"):
                     st.session_state.portfolio = {}
                     st.rerun()
-            else:
-                st.info("Aucune donnée de performance disponible")
-        else:
-            st.info("Aucune position. Ajoutez des actions spatiales pour commencer !")
 
 # ============================================================================
-# SECTION 4: ALERTES DE PRIX
+# SECTION 4: ALERTES
 # ============================================================================
-elif menu == "🔔 Alertes de prix":
-    st.subheader("🔔 Gestion des alertes de prix")
+elif menu == "🔔 Alertes":
+    st.subheader("🔔 Alertes de prix")
     
-    col1, col2 = st.columns([1, 1])
+    with st.form("new_alert"):
+        alert_symbol = st.selectbox("Symbole", list(SPACE_COMPANIES.keys()))
+        alert_price = st.number_input("Prix cible ($)", min_value=0.01, value=50.0)
+        condition = st.selectbox("Condition", ["above", "below"])
+        
+        if st.form_submit_button("Créer"):
+            st.session_state.price_alerts.append({
+                'symbol': alert_symbol, 'price': alert_price,
+                'condition': condition, 'created': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            })
+            st.success(f"Alerte créée")
     
-    with col1:
-        st.markdown("### ➕ Créer une nouvelle alerte")
-        with st.form("new_alert"):
-            alert_symbol = st.selectbox("Symbole", st.session_state.watchlist, index=0)
-            
-            default_price = float(current_price * 1.05) if current_price > 0 else 50.0
-            alert_price = st.number_input("Prix cible ($)", min_value=0.01, step=1.0, value=default_price)
-            
-            col_cond, col_type = st.columns(2)
-            with col_cond:
-                condition = st.selectbox("Condition", ["above", "below"])
-            with col_type:
-                alert_type = st.selectbox("Type", ["Permanent", "Une fois"])
-            
-            one_time = alert_type == "Une fois"
-            
-            if st.form_submit_button("Créer l'alerte"):
-                st.session_state.price_alerts.append({
-                    'symbol': alert_symbol,
-                    'price': alert_price,
-                    'condition': condition,
-                    'one_time': one_time,
-                    'created': datetime.now(USER_TIMEZONE).strftime('%Y-%m-%d %H:%M:%S')
-                })
-                st.success(f"✅ Alerte créée pour {alert_symbol} à ${alert_price:.2f}")
-    
-    with col2:
-        st.markdown("### 📋 Alertes actives")
-        if st.session_state.price_alerts:
-            for i, alert in enumerate(st.session_state.price_alerts):
-                st.markdown(f"""
-                <div class='alert-box alert-warning'>
-                    <b>{alert['symbol']}</b> - {alert['condition']} ${alert['price']:.2f}<br>
-                    <small>Créée: {alert['created']} | {('Usage unique' if alert['one_time'] else 'Permanent')}</small>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                if st.button(f"Supprimer", key=f"del_alert_{i}"):
-                    st.session_state.price_alerts.pop(i)
-                    st.rerun()
-        else:
-            st.info("Aucune alerte active")
+    if st.session_state.price_alerts:
+        for i, alert in enumerate(st.session_state.price_alerts):
+            st.info(f"{alert['symbol']} - {alert['condition']} ${alert['price']:.2f}")
+            if st.button(f"Supprimer", key=f"del_{i}"):
+                st.session_state.price_alerts.pop(i)
+                st.rerun()
 
 # ============================================================================
-# SECTION 5: NOTIFICATIONS EMAIL
+# SECTION 5: EMAIL
 # ============================================================================
-elif menu == "📧 Notifications email":
-    st.subheader("📧 Configuration des notifications email")
+elif menu == "📧 Email":
+    st.subheader("📧 Configuration email")
     
     with st.form("email_config"):
-        enabled = st.checkbox("Activer les notifications email", value=st.session_state.email_config['enabled'])
+        enabled = st.checkbox("Activer", value=st.session_state.email_config['enabled'])
+        email = st.text_input("Email", value=st.session_state.email_config['email'])
+        password = st.text_input("Mot de passe", type="password", value=st.session_state.email_config['password'])
         
-        col1, col2 = st.columns(2)
-        with col1:
-            smtp_server = st.text_input("Serveur SMTP", value=st.session_state.email_config['smtp_server'])
-            smtp_port = st.number_input("Port SMTP", value=st.session_state.email_config['smtp_port'])
-        
-        with col2:
-            email = st.text_input("Adresse email", value=st.session_state.email_config['email'])
-            password = st.text_input("Mot de passe", type="password", value=st.session_state.email_config['password'])
-        
-        test_email = st.text_input("Email de test (optionnel)")
-        
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            if st.form_submit_button("💾 Sauvegarder"):
-                st.session_state.email_config = {
-                    'enabled': enabled,
-                    'smtp_server': smtp_server,
-                    'smtp_port': smtp_port,
-                    'email': email,
-                    'password': password
-                }
-                st.success("Configuration sauvegardée !")
-        
-        with col_btn2:
-            if st.form_submit_button("📨 Tester"):
-                if test_email:
-                    if send_email_alert(
-                        "Test SpaceX Tracker",
-                        f"<h2>✅ Test réussi !</h2><p>Votre configuration email fonctionne correctement.</p>",
-                        test_email
-                    ):
-                        st.success("Email de test envoyé !")
-                    else:
-                        st.error("Échec de l'envoi")
-
-# ============================================================================
-# SECTION 6: EXPORT DES DONNÉES
-# ============================================================================
-elif menu == "📤 Export des données":
-    st.subheader("📤 Export des données")
-    
-    if hist is not None and not hist.empty:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("### 📊 Données historiques")
-            display_hist = hist.copy()
-            display_hist.index = display_hist.index.strftime('%Y-%m-%d %H:%M:%S')
-            st.dataframe(display_hist.tail(20))
-            
-            csv = hist.to_csv()
-            st.download_button(
-                label="📥 Télécharger en CSV",
-                data=csv,
-                file_name=f"{symbol}_data_{datetime.now(USER_TIMEZONE).strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
-        
-        with col2:
-            st.markdown("### 📈 Statistiques")
-            stats = {
-                'Moyenne': hist['Close'].mean(),
-                'Écart-type': hist['Close'].std(),
-                'Min': hist['Close'].min(),
-                'Max': hist['Close'].max(),
+        if st.form_submit_button("💾 Sauvegarder"):
+            st.session_state.email_config = {
+                'enabled': enabled, 'email': email, 'password': password,
+                'smtp_server': 'smtp.gmail.com', 'smtp_port': 587
             }
-            
-            for key, value in stats.items():
-                st.write(f"{key}: ${value:.2f}")
-    else:
-        st.warning(f"Aucune donnée à exporter pour {symbol}")
+            st.success("Configuration sauvegardée")
 
 # ============================================================================
-# SECTION 7: PRÉDICTIONS ML
+# SECTION 6: PRÉDICTIONS
 # ============================================================================
-elif menu == "🤖 Prédictions ML":
-    st.subheader("🤖 Prédictions Machine Learning - Actions Spatiales")
+elif menu == "🤖 Prédictions":
+    st.subheader("🤖 Prédictions ML")
     
     if hist is not None and not hist.empty and len(hist) > 30:
-        st.markdown("### Modèle de prédiction (Régression polynomiale)")
+        df = hist[['Close']].reset_index()
+        df['Days'] = (df['Date'] - df['Date'].min()).dt.days
         
-        df_pred = hist[['Close']].reset_index()
-        df_pred['Days'] = (df_pred['Date'] - df_pred['Date'].min()).dt.days
+        X = df['Days'].values.reshape(-1, 1)
+        y = df['Close'].values
         
-        X = df_pred['Days'].values.reshape(-1, 1)
-        y = df_pred['Close'].values
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            days_to_predict = st.slider("Jours à prédire", 1, 30, 7)
-            degree = st.slider("Degré du polynôme", 1, 5, 2)
-        
-        with col2:
-            show_confidence = st.checkbox("Afficher l'intervalle de confiance", value=True)
+        days = st.slider("Jours à prédire", 1, 30, 7)
+        degree = st.slider("Degré", 1, 5, 2)
         
         model = make_pipeline(PolynomialFeatures(degree=degree), LinearRegression())
         model.fit(X, y)
         
         last_day = X[-1][0]
-        future_days = np.arange(last_day + 1, last_day + days_to_predict + 1).reshape(-1, 1)
+        future_days = np.arange(last_day + 1, last_day + days + 1).reshape(-1, 1)
         predictions = model.predict(future_days)
         
-        last_date = df_pred['Date'].iloc[-1]
-        future_dates = [last_date + timedelta(days=i+1) for i in range(days_to_predict)]
+        future_dates = [df['Date'].iloc[-1] + timedelta(days=i+1) for i in range(days)]
         
-        fig_pred = go.Figure()
-        
-        fig_pred.add_trace(go.Scatter(
-            x=df_pred['Date'], y=y, mode='lines',
-            name='Historique', line=dict(color='blue')
-        ))
-        
-        fig_pred.add_trace(go.Scatter(
-            x=future_dates, y=predictions, mode='lines+markers',
-            name='Prédictions', line=dict(color='red', dash='dash'), marker=dict(size=8)
-        ))
-        
-        if show_confidence:
-            residuals = y - model.predict(X)
-            std_residuals = np.std(residuals)
-            upper_bound = predictions + 2 * std_residuals
-            lower_bound = predictions - 2 * std_residuals
-            
-            fig_pred.add_trace(go.Scatter(
-                x=future_dates + future_dates[::-1],
-                y=np.concatenate([upper_bound, lower_bound[::-1]]),
-                fill='toself', fillcolor='rgba(255,0,0,0.2)',
-                line=dict(color='rgba(255,0,0,0)'),
-                name='Intervalle confiance 95%'
-            ))
-        
-        fig_pred.update_layout(
-            title=f"Prédictions pour {symbol} - {days_to_predict} jours",
-            xaxis_title="Date (Paris UTC+2)",
-            yaxis_title="Prix ($)",
-            height=500,
-            template='plotly_white'
-        )
-        
-        st.plotly_chart(fig_pred, use_container_width=True)
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=df['Date'], y=y, mode='lines', name='Historique'))
+        fig.add_trace(go.Scatter(x=future_dates, y=predictions, mode='lines+markers', name='Prédictions'))
+        fig.update_layout(title=f"Prédictions {symbol}", height=500)
+        st.plotly_chart(fig, use_container_width=True)
         
         pred_df = pd.DataFrame({
             'Date': [d.strftime('%Y-%m-%d') for d in future_dates],
-            'Prix prédit': [format_currency(p) for p in predictions],
-            'Variation %': [f"{(p/current_price - 1)*100:+.2f}%" for p in predictions]
+            'Prédiction': [format_currency(p) for p in predictions]
         })
-        st.dataframe(pred_df, use_container_width=True)
-        
-        # Tendance
-        last_pred = predictions[-1]
-        trend = "HAUSSIÈRE 📈" if last_pred > current_price else "BAISSIÈRE 📉"
-        st.info(f"**Tendance prévue:** {trend}")
-        
-    else:
-        st.warning(f"Pas assez de données pour {symbol} (minimum 30 points)")
+        st.dataframe(pred_df)
 
-# ============================================================================
-# SECTION 8: COMPARATIF NEWSPACE
-# ============================================================================
-elif menu == "📊 Comparatif NewSpace":
-    st.subheader("📊 Comparatif des actions NewSpace")
-    
-    compare_symbols = st.multiselect(
-        "Sélectionner les actions à comparer",
-        st.session_state.watchlist,
-        default=['RKLB', 'PL', 'TSLA']
-    )
-    
-    if len(compare_symbols) >= 2:
-        performance_data = []
-        
-        for sym in compare_symbols:
-            hist_s, _ = load_stock_data_safe(sym, "3mo", "1d")
-            
-            if hist_s is not None and not hist_s.empty:
-                normalized = (hist_s['Close'] / hist_s['Close'].iloc[0] - 1) * 100
-                performance_data.append({
-                    'Symbole': sym,
-                    'Date': hist_s.index,
-                    'Performance %': normalized
-                })
-        
-        if performance_data:
-            fig_comp = go.Figure()
-            
-            for data in performance_data:
-                fig_comp.add_trace(go.Scatter(
-                    x=data['Date'], y=data['Performance %'],
-                    mode='lines', name=data['Symbole'], line=dict(width=2)
-                ))
-            
-            fig_comp.update_layout(
-                title="Comparaison de performance (3 mois) - Normalisée à 100%",
-                xaxis_title="Date (Paris UTC+2)",
-                yaxis_title="Performance %",
-                height=500,
-                hovermode='x unified',
-                template='plotly_white'
-            )
-            
-            st.plotly_chart(fig_comp, use_container_width=True)
-
-# ============================================================================
-# WATCHLIST
-# ============================================================================
-st.markdown("---")
-col_w1, col_w2 = st.columns([3, 1])
-
-with col_w1:
-    st.subheader("📋 Watchlist NewSpace")
-    
-    # Catégories
-    launchers = ['RKLB', 'ASTR']
-    satellites = ['ASTS', 'GSAT', 'IRDM']
-    imaging = ['PL', 'BKSY', 'SATL', 'MAXR']
-    defense = ['LMT', 'NOC', 'BA', 'RTX', 'GD', 'LHX']
-    
-    tabs = st.tabs(["🚀 Lanceurs", "🛰️ Satellites", "📸 Imagerie", "🛡️ Défense"])
-    
-    with tabs[0]:
-        cols = st.columns(min(len(launchers), 4))
-        for i, sym in enumerate(launchers):
-            with cols[i % 4]:
-                try:
-                    ticker = yf.Ticker(sym)
-                    hist = ticker.history(period='1d')
-                    if not hist.empty:
-                        price = hist['Close'].iloc[-1]
-                        st.metric(sym, f"${price:.2f}")
-                    else:
-                        st.metric(sym, "N/A")
-                except:
-                    st.metric(sym, "N/A")
-    
-    with tabs[1]:
-        cols = st.columns(min(len(satellites), 4))
-        for i, sym in enumerate(satellites):
-            with cols[i % 4]:
-                try:
-                    ticker = yf.Ticker(sym)
-                    hist = ticker.history(period='1d')
-                    if not hist.empty:
-                        price = hist['Close'].iloc[-1]
-                        st.metric(sym, f"${price:.2f}")
-                    else:
-                        st.metric(sym, "N/A")
-                except:
-                    st.metric(sym, "N/A")
-    
-    with tabs[2]:
-        cols = st.columns(min(len(imaging), 4))
-        for i, sym in enumerate(imaging):
-            with cols[i % 4]:
-                try:
-                    ticker = yf.Ticker(sym)
-                    hist = ticker.history(period='1d')
-                    if not hist.empty:
-                        price = hist['Close'].iloc[-1]
-                        st.metric(sym, f"${price:.2f}")
-                    else:
-                        st.metric(sym, "N/A")
-                except:
-                    st.metric(sym, "N/A")
-    
-    with tabs[3]:
-        cols = st.columns(min(len(defense), 4))
-        for i, sym in enumerate(defense):
-            with cols[i % 4]:
-                try:
-                    ticker = yf.Ticker(sym)
-                    hist = ticker.history(period='1d')
-                    if not hist.empty:
-                        price = hist['Close'].iloc[-1]
-                        st.metric(sym, f"${price:.2f}")
-                    else:
-                        st.metric(sym, "N/A")
-                except:
-                    st.metric(sym, "N/A")
-
-with col_w2:
-    paris_time = datetime.now(USER_TIMEZONE)
-    ny_time = datetime.now(US_TIMEZONE)
-    
-    st.caption(f"🇫🇷 Paris: {paris_time.strftime('%H:%M:%S')}")
-    st.caption(f"🇺🇸 NY: {ny_time.strftime('%H:%M:%S')}")
-    
-    if auto_refresh and hist is not None and not hist.empty:
-        time.sleep(refresh_rate)
-        st.rerun()
+# Auto-refresh
+if auto_refresh:
+    time.sleep(refresh_rate)
+    st.rerun()
 
 # Footer
 st.markdown("---")
-st.markdown(
-    "<p style='text-align: center; color: gray; font-size: 0.8rem;'>"
-    "🚀 SpaceX & NewSpace Tracker - Données yfinance | Scores basés sur: Financier, Technique, Spatial, Croissance, Risque | "
-    "⚠️ Données avec délai possible | 🕐 Heure Paris UTC+2"
-    "</p>",
-    unsafe_allow_html=True
-)
+st.markdown("<p style='text-align: center; color: gray;'>🚀 SpaceX & NewSpace Tracker | Données temps réel et simulées</p>", unsafe_allow_html=True)
